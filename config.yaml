@@ -1,0 +1,86 @@
+# LLMverse Configuration File
+# Copy this file and rename to config.local.yaml with your actual values
+
+# Flask Application Settings
+flask:
+  app: "app.py"
+  env: "development"
+  secret_key: "your-secret-key-here"
+  host: "127.0.0.1"
+  port: 5000
+  debug: true
+
+# Database Configuration
+database:
+  url: "sqlite:///llmverse.db"
+  # For PostgreSQL: "postgresql://username:password@localhost:5432/llmverse"
+  # For MySQL: "mysql://username:password@localhost:3306/llmverse"
+
+# LLM Provider API Keys and Configuration
+# Default provider is Ollama for local development
+providers:
+  ollama:
+    base_url: "http://localhost:11434"
+    default_model: "gemma3:270m"
+    max_tokens: 1024
+    temperature: 0.7
+    # Available models: gemma3:270m, dolphin-mistral:latest, etc.
+
+  openai:
+    api_key: "your-openai-api-key"
+    default_model: "gpt-3.5-turbo"
+    max_tokens: 500
+    temperature: 0.7
+
+  gemini:
+    api_key: "your-gemini-api-key"
+    default_model: "gemini-pro"
+    max_tokens: 500
+    temperature: 0.7
+
+# Agent Configuration
+agents:
+  max_agents: 10
+  simulation_speed: 1.0 # seconds between actions
+  memory_retention_days: 30
+  short_term_memory_limit: 50
+  long_term_threshold: 7.0
+  autonomous_action_interval: 30 # seconds
+
+# Environment Settings
+environment:
+  default_rules:
+    communication: true
+    action_cooldown: 5 # seconds between actions
+    max_daily_actions: 100
+    influence_decay: 0.1
+    society_building: true
+    governance_formation: true
+
+  simulation:
+    auto_advance_day: false
+    day_duration_minutes: 60
+    max_societies: 10
+    max_governments: 5
+
+# Logging Configuration
+logging:
+  level: "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "logs/llmverse.log"
+  max_file_size_mb: 10
+  backup_count: 5
+  console_output: true
+
+# Security Settings
+security:
+  session_timeout_minutes: 30
+  rate_limit_requests_per_minute: 60
+  cors_enabled: false
+  cors_origins: ["http://localhost:3000"]
+
+# WebSocket Configuration
+websocket:
+  enabled: true
+  ping_interval: 25
+  ping_timeout: 60
+  max_connections: 100

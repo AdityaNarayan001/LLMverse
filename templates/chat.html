@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row h-100">
+    <div class="col-md-3">
+        <!-- Agent Selection -->
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-users"></i> Available Agents</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush">
+                    {% for agent in agents %}
+                    <div class="list-group-item list-group-item-action agent-selector" data-agent-id="{{ agent.id }}"
+                        data-agent-name="{{ agent.name }}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center">
+                                <div class="status-indicator me-2">
+                                    {% if agent.is_active %}
+                                    <i class="fas fa-circle text-success" title="Active"></i>
+                                    {% else %}
+                                    <i class="fas fa-circle text-danger" title="Inactive"></i>
+                                    {% endif %}
+                                </div>
+                                <div>
+                                    <strong>{{ agent.name }}</strong>
+                                    <br>
+                                    <small class="text-muted">{{ agent.provider }}</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-9">
+        <!-- Chat Interface -->
+        <div class="card h-100 d-flex flex-column">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-0" id="chatTitle">
+                        <i class="fas fa-comment"></i> Chat with Agent
+                    </h5>
+                    <small class="text-muted" id="chatSubtitle">Select an agent to start chatting</small>
+                </div>
+                <div class="chat-controls">
+                    <button class="btn btn-sm btn-outline-secondary" id="clearChat">
+                        <i class="fas fa-trash"></i> Clear
+                    </button>
+                </div>
+            </div>
+
+            <div class="card-body flex-grow-1 d-flex flex-column">
+                <!-- Chat Messages -->
+                <div class="chat-messages flex-grow-1 mb-3" id="chatMessages"
+                    style="overflow-y: auto; max-height: 500px;">
+                    <div class="text-center text-muted mt-5">
+                        <i class="fas fa-comment-dots fa-3x mb-3"></i>
+                        <p>Select an agent from the sidebar to start a conversation.</p>
+                    </div>
+                </div>
+
+                <!-- Chat Input -->
+                <div class="chat-input">
+                    <form id="chatForm">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="messageInput" placeholder="Type your message..."
+                                disabled>
+                            <button class="btn btn-primary" type="submit" id="sendButton" disabled>
+                                <i class="fas fa-paper-plane"></i> Send
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentAgentId = null;
+    let currentAgentName = null;
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // Set up event listeners
+        document.querySelectorAll('.agent-selector').forEach(selector => {
+            selector.addEventListener('click', selectAgent);
+        });
+
+        document.getElementById('chatForm').addEventListener('submit', sendMessage);
+        document.getElementById('clearChat').addEventListener('click', clearChat);
+
+        // Check for agent ID in URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const agentId = urlParams.get('agent');
+        if (agentId) {
+            const agentSelector = document.querySelector(`[data-agent-id="${agentId}"]`);
+            if (agentSelector) {
+                selectAgent({ target: agentSelector });
+            }
+        }
+    });
+
+    function selectAgent(event) {
+        const selector = event.target.closest('.agent-selector');
+        const agentId = selector.dataset.agentId;
+        const agentName = selector.dataset.agentName;
+
+        // Update selection
+        document.querySelectorAll('.agent-selector').forEach(s => s.classList.remove('active'));
+        selector.classList.add('active');
+
+        // Set current agent
+        currentAgentId = agentId;
+        currentAgentName = agentName;
+
+        // Update UI
+        document.getElementById('chatTitle').innerHTML =
+            `<i class="fas fa-comment"></i> Chat with ${agentName}`;
+        document.getElementById('chatSubtitle').textContent =
+            'Ask questions or start a conversation';
+
+        // Enable input
+        document.getElementById('messageInput').disabled = false;
+        document.getElementById('sendButton').disabled = false;
+        document.getElementById('messageInput').focus();
+
+        // Clear existing messages
+        clearChat();
+    }
+
+    function sendMessage(event) {
+        event.preventDefault();
+
+        if (!currentAgentId) {
+            showToast('Please select an agent first', 'warning');
+            return;
+        }
+
+        const messageInput = document.getElementById('messageInput');
+        const message = messageInput.value.trim();
+
+        if (!message) {
+            return;
+        }
+
+        // Add user message to chat
+        addMessageToChat(message, 'user', 'You');
+
+        // Clear input and disable form
+        messageInput.value = '';
+        setFormDisabled(true);
+
+        // Show typing indicator
+        showTypingIndicator();
+
+        // Send message to agent
+        fetch(`/api/agents/${currentAgentId}/chat`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ message: message })
+        })
+            .then(response => response.json())
+            .then(data => {
+                // Remove typing indicator
+                removeTypingIndicator();
+
+                if (data.error) {
+                    showToast('Error: ' + data.error, 'error');
+                    addMessageToChat('Sorry, I encountered an error processing your message.',
+                        'agent', currentAgentName, 'error');
+                } else {
+                    // Add agent response to chat
+                    addMessageToChat(data.response, 'agent', currentAgentName);
+                }
+
+                // Re-enable form
+                setFormDisabled(false);
+                document.getElementById('messageInput').focus();
+            })
+            .catch(error => {
+                removeTypingIndicator();
+                showToast('Network error: ' + error.message, 'error');
+                addMessageToChat('Sorry, I cannot respond right now due to a network error.',
+                    'agent', currentAgentName, 'error');
+                setFormDisabled(false);
+            });
+    }
+
+    function addMessageToChat(message, sender, senderName, type = 'normal') {
+        const chatMessages = document.getElementById('chatMessages');
+
+        // Remove welcome message if it exists
+        const welcomeMessage = chatMessages.querySelector('.text-center.text-muted');
+        if (welcomeMessage) {
+            welcomeMessage.remove();
+        }
+
+        const messageElement = document.createElement('div');
+        messageElement.className = `chat-message ${sender}`;
+
+        if (type === 'error') {
+            messageElement.classList.add('border', 'border-danger');
+        }
+
+        const time = new Date().toLocaleTimeString();
+
+        messageElement.innerHTML = `
+        <div class="message-header d-flex justify-content-between">
+            <strong>${escapeHtml(senderName)}</strong>
+            <span class="message-time">${time}</span>
+        </div>
+        <div class="message-content">${escapeHtml(message)}</div>
+    `;
+
+        chatMessages.appendChild(messageElement);
+
+        // Scroll to bottom
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function showTypingIndicator() {
+        const chatMessages = document.getElementById('chatMessages');
+
+        const typingElement = document.createElement('div');
+        typingElement.id = 'typingIndicator';
+        typingElement.className = 'chat-message agent';
+        typingElement.innerHTML = `
+        <div class="message-header">
+            <strong>${escapeHtml(currentAgentName)}</strong>
+        </div>
+        <div class="message-content">
+            <div class="loading-spinner"></div> Typing...
+        </div>
+    `;
+
+        chatMessages.appendChild(typingElement);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function removeTypingIndicator() {
+        const typingIndicator = document.getElementById('typingIndicator');
+        if (typingIndicator) {
+            typingIndicator.remove();
+        }
+    }
+
+    function setFormDisabled(disabled) {
+        document.getElementById('messageInput').disabled = disabled;
+        document.getElementById('sendButton').disabled = disabled;
+    }
+
+    function clearChat() {
+        const chatMessages = document.getElementById('chatMessages');
+        chatMessages.innerHTML = '';
+
+        if (!currentAgentId) {
+            chatMessages.innerHTML = `
+            <div class="text-center text-muted mt-5">
+                <i class="fas fa-comment-dots fa-3x mb-3"></i>
+                <p>Select an agent from the sidebar to start a conversation.</p>
+            </div>
+        `;
+        }
+    }
+
+    // Handle Enter key in message input
+    document.getElementById('messageInput').addEventListener('keypress', function (event) {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+        }
+    });
+
+    // Socket event handlers for real-time updates
+    if (typeof socket !== 'undefined') {
+        socket.on('agent_interaction', function (data) {
+            // Handle real-time agent interactions if needed
+            console.log('Real-time agent interaction:', data);
+        });
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,396 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <!-- Agents List -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-users"></i> Agents</h5>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createAgentModal">
+                    <i class="fas fa-plus"></i> Create Agent
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Name</th>
+                                <th>Provider</th>
+                                <th>Model</th>
+                                <th>Last Active</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="agentsTableBody">
+                            {% for agent in agents %}
+                            <tr data-agent-id="{{ agent.id }}">
+                                <td>
+                                    {% if agent.is_active %}
+                                    <i class="fas fa-circle text-success" title="Active"></i>
+                                    {% else %}
+                                    <i class="fas fa-circle text-danger" title="Inactive"></i>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <strong>{{ agent.name }}</strong>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ agent.provider }}</span>
+                                </td>
+                                <td>{{ agent.model_name }}</td>
+                                <td>
+                                    {% if agent.last_active %}
+                                    {{ agent.last_active.strftime('%Y-%m-%d %H:%M') }}
+                                    {% else %}
+                                    Never
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-primary chat-agent"
+                                            data-agent-id="{{ agent.id }}">
+                                            <i class="fas fa-comment"></i>
+                                        </button>
+                                        <button class="btn btn-outline-secondary edit-agent"
+                                            data-agent-id="{{ agent.id }}">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger delete-agent"
+                                            data-agent-id="{{ agent.id }}">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <!-- Provider Status -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-server"></i> Provider Status</h5>
+            </div>
+            <div class="card-body">
+                {% for provider in providers %}
+                <div class="provider-status mb-3 p-3 border rounded">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong>{{ provider.title() }}</strong>
+                        <span class="badge bg-success">Available</span>
+                    </div>
+                    <div class="models-list">
+                        <small class="text-muted">Models:</small>
+                        <div class="mt-1">
+                            {% for model in provider_models[provider] %}
+                            <span class="badge bg-light text-dark me-1">{{ model }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Agent Statistics -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-bar"></i> Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-4">
+                        <h4 class="text-primary">{{ agents|length }}</h4>
+                        <small class="text-muted">Total Agents</small>
+                    </div>
+                    <div class="col-4">
+                        <h4 class="text-success">{{ agents|selectattr('is_active')|list|length }}</h4>
+                        <small class="text-muted">Active</small>
+                    </div>
+                    <div class="col-4">
+                        <h4 class="text-danger">{{ agents|rejectattr('is_active')|list|length }}</h4>
+                        <small class="text-muted">Inactive</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Agent Modal -->
+<div class="modal fade" id="createAgentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create New Agent</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="createAgentForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="agentName" class="form-label">Name</label>
+                        <input type="text" class="form-control" id="agentName" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="agentProvider" class="form-label">Provider</label>
+                        <select class="form-select" id="agentProvider" required>
+                            <option value="">Select Provider</option>
+                            {% for provider in providers %}
+                            <option value="{{ provider }}">{{ provider.title() }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="agentModel" class="form-label">Model</label>
+                        <select class="form-select" id="agentModel" required>
+                            <option value="">Select Model</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="agentPersonality" class="form-label">Personality</label>
+                        <textarea class="form-control" id="agentPersonality" rows="5" required
+                            placeholder="Describe the agent's personality, behavior, and characteristics..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Agent</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Agent Modal -->
+<div class="modal fade" id="editAgentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Agent</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editAgentForm">
+                <input type="hidden" id="editAgentId">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="editAgentName" class="form-label">Name</label>
+                        <input type="text" class="form-control" id="editAgentName" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="editAgentProvider" class="form-label">Provider</label>
+                        <select class="form-select" id="editAgentProvider" required>
+                            {% for provider in providers %}
+                            <option value="{{ provider }}">{{ provider.title() }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="editAgentModel" class="form-label">Model</label>
+                        <select class="form-select" id="editAgentModel" required>
+                            <option value="">Select Model</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="editAgentPersonality" class="form-label">Personality</label>
+                        <textarea class="form-control" id="editAgentPersonality" rows="5" required></textarea>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="editAgentActive">
+                        <label class="form-check-label" for="editAgentActive">
+                            Active
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Update Agent</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const providerModels = {{ provider_models| tojson }};
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // Set up event listeners
+        document.getElementById('createAgentForm').addEventListener('submit', createAgent);
+        document.getElementById('editAgentForm').addEventListener('submit', updateAgent);
+        document.getElementById('agentProvider').addEventListener('change', updateModelOptions);
+        document.getElementById('editAgentProvider').addEventListener('change', updateEditModelOptions);
+
+        // Set up agent action buttons
+        document.querySelectorAll('.edit-agent').forEach(btn => {
+            btn.addEventListener('click', openEditModal);
+        });
+
+        document.querySelectorAll('.delete-agent').forEach(btn => {
+            btn.addEventListener('click', deleteAgent);
+        });
+
+        document.querySelectorAll('.chat-agent').forEach(btn => {
+            btn.addEventListener('click', function () {
+                const agentId = this.dataset.agentId;
+                window.location.href = `/chat?agent=${agentId}`;
+            });
+        });
+    });
+
+    function updateModelOptions() {
+        const provider = document.getElementById('agentProvider').value;
+        const modelSelect = document.getElementById('agentModel');
+
+        modelSelect.innerHTML = '<option value="">Select Model</option>';
+
+        if (provider && providerModels[provider]) {
+            providerModels[provider].forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                modelSelect.appendChild(option);
+            });
+        }
+    }
+
+    function updateEditModelOptions() {
+        const provider = document.getElementById('editAgentProvider').value;
+        const modelSelect = document.getElementById('editAgentModel');
+
+        modelSelect.innerHTML = '<option value="">Select Model</option>';
+
+        if (provider && providerModels[provider]) {
+            providerModels[provider].forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                modelSelect.appendChild(option);
+            });
+        }
+    }
+
+    function createAgent(event) {
+        event.preventDefault();
+
+        const formData = {
+            name: document.getElementById('agentName').value,
+            provider: document.getElementById('agentProvider').value,
+            model_name: document.getElementById('agentModel').value,
+            personality: document.getElementById('agentPersonality').value
+        };
+
+        fetch('/api/agents', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showToast('Error creating agent: ' + data.error, 'error');
+                } else {
+                    showToast('Agent created successfully', 'success');
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('createAgentModal'));
+                    modal.hide();
+                    location.reload(); // Refresh the page to show the new agent
+                }
+            })
+            .catch(error => {
+                showToast('Error creating agent: ' + error.message, 'error');
+            });
+    }
+
+    function openEditModal(event) {
+        const agentId = event.target.closest('button').dataset.agentId;
+        const row = document.querySelector(`tr[data-agent-id="${agentId}"]`);
+
+        // Get agent data from the table row (simplified)
+        const agentName = row.querySelector('td:nth-child(2)').textContent.trim();
+
+        // Set form values
+        document.getElementById('editAgentId').value = agentId;
+        document.getElementById('editAgentName').value = agentName;
+
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('editAgentModal'));
+        modal.show();
+    }
+
+    function updateAgent(event) {
+        event.preventDefault();
+
+        const agentId = document.getElementById('editAgentId').value;
+        const formData = {
+            name: document.getElementById('editAgentName').value,
+            provider: document.getElementById('editAgentProvider').value,
+            model_name: document.getElementById('editAgentModel').value,
+            personality: document.getElementById('editAgentPersonality').value,
+            is_active: document.getElementById('editAgentActive').checked
+        };
+
+        fetch(`/api/agents/${agentId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showToast('Error updating agent: ' + data.error, 'error');
+                } else {
+                    showToast('Agent updated successfully', 'success');
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('editAgentModal'));
+                    modal.hide();
+                    location.reload(); // Refresh the page to show the updates
+                }
+            })
+            .catch(error => {
+                showToast('Error updating agent: ' + error.message, 'error');
+            });
+    }
+
+    function deleteAgent(event) {
+        const agentId = event.target.closest('button').dataset.agentId;
+        const row = document.querySelector(`tr[data-agent-id="${agentId}"]`);
+        const agentName = row.querySelector('td:nth-child(2)').textContent.trim();
+
+        if (confirm(`Are you sure you want to delete agent "${agentName}"? This action cannot be undone.`)) {
+            fetch(`/api/agents/${agentId}`, {
+                method: 'DELETE'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showToast('Error deleting agent: ' + data.error, 'error');
+                    } else {
+                        showToast('Agent deleted successfully', 'success');
+                        row.remove(); // Remove the row from the table
+                    }
+                })
+                .catch(error => {
+                    showToast('Error deleting agent: ' + error.message, 'error');
+                });
+        }
+    }
+</script>
+{% endblock %}

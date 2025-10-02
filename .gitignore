@@ -2,3 +2,27 @@
 .DS_Store
 __pycache__/
 *.pyc
+instance/
+
+# Environment and Configuration Files
+.env
+config.local.yaml
+*.local.yaml
+
+# Database Files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Files
+Thumbs.db

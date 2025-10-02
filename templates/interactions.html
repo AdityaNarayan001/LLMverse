@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-comments"></i> Agent Interactions</h5>
+                <div class="interaction-controls">
+                    <button class="btn btn-sm btn-outline-secondary" id="refreshInteractions">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" id="clearInteractions">
+                        <i class="fas fa-trash"></i> Clear All
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="interaction-filters mb-3">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <select class="form-select form-select-sm" id="actionTypeFilter">
+                                <option value="">All Action Types</option>
+                                <option value="communicate">Communication</option>
+                                <option value="form_society">Form Society</option>
+                                <option value="create_government">Create Government</option>
+                                <option value="influence">Influence</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <select class="form-select form-select-sm" id="agentFilter">
+                                <option value="">All Agents</option>
+                                <!-- Will be populated by JavaScript -->
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <input type="number" class="form-control form-control-sm" id="limitFilter" value="50"
+                                min="10" max="500" placeholder="Limit">
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-sm btn-primary" id="applyFilters">
+                                <i class="fas fa-filter"></i> Apply Filters
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="interactionsContainer">
+                    <!-- Will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let allInteractions = [];
+    let filteredInteractions = [];
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // Set up event listeners
+        document.getElementById('refreshInteractions').addEventListener('click', loadInteractions);
+        document.getElementById('clearInteractions').addEventListener('click', clearAllInteractions);
+        document.getElementById('applyFilters').addEventListener('click', applyFilters);
+
+        // Load initial data
+        loadInteractions();
+        loadAgentList();
+
+        // Auto-refresh interactions
+        startAutoRefresh(loadInteractions, 15000);
+        window.resumeAutoRefresh = function () {
+            startAutoRefresh(loadInteractions, 15000);
+        };
+    });
+
+    function loadInteractions() {
+        const limit = document.getElementById('limitFilter').value || 50;
+
+        showLoading('interactionsContainer');
+
+        fetch(`/api/interactions?limit=${limit}`)
+            .then(response => response.json())
+            .then(data => {
+                allInteractions = data;
+                filteredInteractions = data;
+                renderInteractions(filteredInteractions);
+            })
+            .catch(error => {
+                hideLoading('interactionsContainer',
+                    '<div class="alert alert-danger">Error loading interactions: ' + error.message + '</div>');
+            });
+    }
+
+    function loadAgentList() {
+        fetch('/api/agents')
+            .then(response => response.json())
+            .then(data => {
+                const agentFilter = document.getElementById('agentFilter');
+
+                // Clear existing options except the first one
+                while (agentFilter.children.length > 1) {
+                    agentFilter.removeChild(agentFilter.lastChild);
+                }
+
+                // Add agent options
+                data.forEach(agent => {
+                    const option = document.createElement('option');
+                    option.value = agent.id;
+                    option.textContent = agent.name;
+                    agentFilter.appendChild(option);
+                });
+            })
+            .catch(error => {
+                console.error('Error loading agents:', error);
+            });
+    }
+
+    function renderInteractions(interactions) {
+        const container = document.getElementById('interactionsContainer');
+
+        if (interactions.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">No interactions found.</div>';
+            return;
+        }
+
+        let html = '<div class="timeline">';
+
+        interactions.forEach((interaction, index) => {
+            const action = interaction.action;
+            const time = formatDate(action.created_at);
+            const isSuccess = action.success;
+
+            html += `
+            <div class="timeline-item ${isSuccess ? 'success' : 'failed'}" data-index="${index}">
+                <div class="timeline-marker">
+                    <i class="fas ${getActionIcon(action.action_type)}"></i>
+                </div>
+                <div class="timeline-content">
+                    <div class="timeline-header">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong>${escapeHtml(interaction.agent_name)}</strong>
+                                <span class="badge bg-${getActionColor(action.action_type)} ms-2">
+                                    ${action.action_type}
+                                </span>
+                                ${!isSuccess ? '<span class="badge bg-danger ms-1">Failed</span>' : ''}
+                            </div>
+                            <small class="text-muted">${time}</small>
+                        </div>
+                    </div>
+                    <div class="timeline-body">
+                        <p class="mb-1">${escapeHtml(action.description)}</p>
+                        ${interaction.target_agent_name ?
+                    `<small class="text-muted">Target: ${escapeHtml(interaction.target_agent_name)}</small>` :
+                    ''}
+                        ${action.metadata ?
+                    `<div class="mt-2">
+                             <button class="btn btn-sm btn-outline-info toggle-metadata" data-index="${index}">
+                               <i class="fas fa-info-circle"></i> Details
+                             </button>
+                             <div class="metadata-content mt-2" style="display: none;">
+                               <pre class="bg-light p-2 rounded"><code>${JSON.stringify(action.metadata, null, 2)}</code></pre>
+                             </div>
+                           </div>` :
+                    ''}
+                    </div>
+                </div>
+            </div>
+        `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+
+        // Add event listeners for metadata toggles
+        document.querySelectorAll('.toggle-metadata').forEach(btn => {
+            btn.addEventListener('click', function () {
+                const index = this.dataset.index;
+                const metadataContent = this.parentElement.querySelector('.metadata-content');
+
+                if (metadataContent.style.display === 'none') {
+                    metadataContent.style.display = 'block';
+                    this.innerHTML = '<i class="fas fa-eye-slash"></i> Hide Details';
+                } else {
+                    metadataContent.style.display = 'none';
+                    this.innerHTML = '<i class="fas fa-info-circle"></i> Details';
+                }
+            });
+        });
+    }
+
+    function applyFilters() {
+        const actionTypeFilter = document.getElementById('actionTypeFilter').value;
+        const agentFilter = document.getElementById('agentFilter').value;
+
+        filteredInteractions = allInteractions.filter(interaction => {
+            const action = interaction.action;
+
+            // Filter by action type
+            if (actionTypeFilter && action.action_type !== actionTypeFilter) {
+                return false;
+            }
+
+            // Filter by agent
+            if (agentFilter && action.agent_id != agentFilter) {
+                return false;
+            }
+
+            return true;
+        });
+
+        renderInteractions(filteredInteractions);
+    }
+
+    function clearAllInteractions() {
+        if (confirm('Are you sure you want to clear all interactions? This action cannot be undone.')) {
+            fetch('/api/environment/reset', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showToast('Error clearing interactions: ' + data.error, 'error');
+                    } else {
+                        showToast('All interactions cleared', 'success');
+                        loadInteractions();
+                    }
+                })
+                .catch(error => {
+                    showToast('Error clearing interactions: ' + error.message, 'error');
+                });
+        }
+    }
+
+    function getActionIcon(actionType) {
+        switch (actionType) {
+            case 'communicate': return 'fa-comment';
+            case 'form_society': return 'fa-users';
+            case 'create_government': return 'fa-university';
+            case 'influence': return 'fa-chart-line';
+            default: return 'fa-circle';
+        }
+    }
+
+    function getActionColor(actionType) {
+        switch (actionType) {
+            case 'communicate': return 'primary';
+            case 'form_society': return 'success';
+            case 'create_government': return 'warning';
+            case 'influence': return 'info';
+            default: return 'secondary';
+        }
+    }
+</script>
+
+<style>
+    .timeline {
+        position: relative;
+        padding-left: 3rem;
+    }
+
+    .timeline::before {
+        content: '';
+        position: absolute;
+        left: 1rem;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #dee2e6;
+    }
+
+    .timeline-item {
+        position: relative;
+        margin-bottom: 2rem;
+    }
+
+    .timeline-marker {
+        position: absolute;
+        left: -2.5rem;
+        top: 0.5rem;
+        width: 2rem;
+        height: 2rem;
+        background: #007bff;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 0.75rem;
+    }
+
+    .timeline-item.failed .timeline-marker {
+        background: #dc3545;
+    }
+
+    .timeline-content {
+        background: white;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 1rem;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    }
+
+    .timeline-header {
+        margin-bottom: 0.5rem;
+    }
+
+    .timeline-body {
+        margin: 0;
+    }
+
+    .metadata-content pre {
+        font-size: 0.75rem;
+        max-height: 200px;
+        overflow: auto;
+    }
+</style>
+{% endblock %}

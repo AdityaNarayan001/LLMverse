@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <!-- Current Environment -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-globe"></i> Current Environment</h5>
+                <div class="environment-actions">
+                    <button class="btn btn-sm btn-warning" id="resetEnvironment">
+                        <i class="fas fa-redo"></i> Reset
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if current_environment %}
+                <h6>{{ current_environment.name }}</h6>
+                <p class="text-muted">{{ current_environment.description }}</p>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Rules</h6>
+                        <div class="environment-rules">{{ environment_rules|tojson(indent=2) if environment_rules else
+                            '{}' }}</div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Current State</h6>
+                        <div class="environment-state">{{ environment_state|tojson(indent=2) if environment_state else
+                            '{}' }}</div>
+                    </div>
+                </div>
+                {% else %}
+                <p class="text-muted">No active environment</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Environment State Details -->
+        {% if environment_state %}
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-building"></i> Societies</h6>
+                    </div>
+                    <div class="card-body">
+                        {% if environment_state.societies %}
+                        {% for society in environment_state.societies %}
+                        <div class="mb-2 p-2 border rounded">
+                            <strong>{{ society.name }}</strong>
+                            <br>
+                            <small class="text-muted">Founder: Agent {{ society.founder }}</small>
+                            <br>
+                            <small class="text-muted">Members: {{ society.members|length }}</small>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <p class="text-muted">No societies formed yet</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-university"></i> Governments</h6>
+                    </div>
+                    <div class="card-body">
+                        {% if environment_state.governments %}
+                        {% for government in environment_state.governments %}
+                        <div class="mb-2 p-2 border rounded">
+                            <strong>{{ government.name }}</strong>
+                            <br>
+                            <small class="text-muted">Leader: Agent {{ government.leader }}</small>
+                            <br>
+                            <small class="text-muted">Type: {{ government.type }}</small>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <p class="text-muted">No governments created yet</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="col-md-4">
+        <!-- Available Environments -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list"></i> Available Environments</h5>
+            </div>
+            <div class="card-body">
+                {% for env in environments %}
+                <div class="environment-item mb-2 p-2 border rounded {% if env.is_active %}border-primary{% endif %}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <strong>{{ env.name }}</strong>
+                            {% if env.is_active %}
+                            <span class="badge bg-primary ms-2">Active</span>
+                            {% endif %}
+                            <br>
+                            <small class="text-muted">{{ env.description }}</small>
+                            <br>
+                            <small class="text-muted">Created: {{ env.created_at.strftime('%Y-%m-%d') if env.created_at
+                                else 'Unknown' }}</small>
+                        </div>
+                        <div class="environment-actions">
+                            {% if not env.is_active %}
+                            <button class="btn btn-sm btn-outline-primary switch-environment"
+                                data-env-id="{{ env.id }}">
+                                <i class="fas fa-exchange-alt"></i>
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // Set up event listeners
+        document.getElementById('resetEnvironment').addEventListener('click', resetEnvironment);
+
+        document.querySelectorAll('.switch-environment').forEach(btn => {
+            btn.addEventListener('click', function () {
+                const envId = this.dataset.envId;
+                switchEnvironment(envId);
+            });
+        });
+
+        // Auto-refresh environment state
+        startAutoRefresh(refreshEnvironmentState, 10000);
+        window.resumeAutoRefresh = function () {
+            startAutoRefresh(refreshEnvironmentState, 10000);
+        };
+    });
+
+    function resetEnvironment() {
+        if (confirm('Are you sure you want to reset the environment? This will clear all agent interactions, societies, and governments.')) {
+            fetch('/api/environment/reset', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showToast('Error resetting environment: ' + data.error, 'error');
+                    } else {
+                        showToast('Environment reset successfully', 'success');
+                        location.reload();
+                    }
+                })
+                .catch(error => {
+                    showToast('Error resetting environment: ' + error.message, 'error');
+                });
+        }
+    }
+
+    function switchEnvironment(envId) {
+        fetch(`/api/environment/switch/${envId}`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showToast('Error switching environment: ' + data.error, 'error');
+                } else {
+                    showToast('Environment switched successfully', 'success');
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                showToast('Error switching environment: ' + error.message, 'error');
+            });
+    }
+
+    function refreshEnvironmentState() {
+        // This would typically fetch updated environment state
+        // For now, we'll just reload the page periodically
+        // In a production app, you'd want to update specific elements
+    }
+</script>
+{% endblock %}

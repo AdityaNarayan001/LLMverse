@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <!-- Simulation Control -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-play-circle"></i> Simulation Control</h5>
+                <div class="simulation-status">
+                    {% if simulation_status.running %}
+                    <span class="badge bg-success">Running</span>
+                    {% else %}
+                    <span class="badge bg-secondary">Stopped</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <button id="startSimulation" class="btn btn-success me-2" {% if simulation_status.running
+                            %}disabled{% endif %}>
+                            <i class="fas fa-play"></i> Start Simulation
+                        </button>
+                        <button id="stopSimulation" class="btn btn-danger me-2" {% if not simulation_status.running
+                            %}disabled{% endif %}>
+                            <i class="fas fa-stop"></i> Stop Simulation
+                        </button>
+                        <button id="resetEnvironment" class="btn btn-warning">
+                            <i class="fas fa-redo"></i> Reset Environment
+                        </button>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-2">
+                            <label for="simulationSpeed" class="form-label">Simulation Speed (seconds)</label>
+                            <input type="range" class="form-range" id="simulationSpeed" min="0.5" max="10" step="0.5"
+                                value="{{ simulation_status.speed }}">
+                            <span id="speedValue">{{ simulation_status.speed }}s</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Environment Status -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-globe"></i> Environment Status</h5>
+            </div>
+            <div class="card-body">
+                {% if environment %}
+                <h6>{{ environment.name }}</h6>
+                <p class="text-muted">{{ environment.description }}</p>
+                <div class="row">
+                    <div class="col-md-6">
+                        <small class="text-muted">Created: {{ environment.created_at.strftime('%Y-%m-%d %H:%M') if
+                            environment.created_at else 'Unknown' }}</small>
+                    </div>
+                    <div class="col-md-6">
+                        <small class="text-muted">Updated: {{ environment.updated_at.strftime('%Y-%m-%d %H:%M') if
+                            environment.updated_at else 'Unknown' }}</small>
+                    </div>
+                </div>
+                {% else %}
+                <p class="text-muted">No active environment</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Recent Interactions -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-comments"></i> Recent Interactions</h5>
+            </div>
+            <div class="card-body">
+                <div id="recentInteractions" style="max-height: 400px; overflow-y: auto;">
+                    <!-- Will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <!-- Agent Status -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-users"></i> Agent Status</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col">
+                        <div class="text-center">
+                            <h3 class="text-primary">{{ simulation_status.total_agents }}</h3>
+                            <small class="text-muted">Total Agents</small>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="text-center">
+                            <h3 class="text-success">{{ simulation_status.active_agents }}</h3>
+                            <small class="text-muted">Active Agents</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="agentList">
+                    {% for agent in agents %}
+                    <div class="agent-item d-flex justify-content-between align-items-center mb-2 p-2 border rounded">
+                        <div class="d-flex align-items-center">
+                            <div class="status-indicator me-2">
+                                {% if agent.is_active %}
+                                <i class="fas fa-circle text-success" title="Active"></i>
+                                {% else %}
+                                <i class="fas fa-circle text-danger" title="Inactive"></i>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <strong>{{ agent.name }}</strong>
+                                <br>
+                                <small class="text-muted">{{ agent.provider }} ({{ agent.model_name }})</small>
+                            </div>
+                        </div>
+                        <div class="agent-actions">
+                            <button class="btn btn-sm btn-outline-primary chat-agent" data-agent-id="{{ agent.id }}">
+                                <i class="fas fa-comment"></i>
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-bolt"></i> Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary"
+                        onclick="window.location.href='{{ url_for('agents_page') }}'">
+                        <i class="fas fa-plus"></i> Add New Agent
+                    </button>
+                    <button class="btn btn-outline-secondary"
+                        onclick="window.location.href='{{ url_for('environment_page') }}'">
+                        <i class="fas fa-cog"></i> Configure Environment
+                    </button>
+                    <button class="btn btn-outline-info" onclick="window.location.href='{{ url_for('chat_page') }}'">
+                        <i class="fas fa-message"></i> Chat with Agents
+                    </button>
+                    <button id="broadcastMessage" class="btn btn-outline-warning">
+                        <i class="fas fa-bullhorn"></i> Broadcast Message
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Broadcast Modal -->
+<div class="modal fade" id="broadcastModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Broadcast Message</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="broadcastText" class="form-label">Message</label>
+                    <textarea class="form-control" id="broadcastText" rows="3"
+                        placeholder="Enter message to send to all active agents..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="sendBroadcast">Send</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Initialize dashboard functionality
+    document.addEventListener('DOMContentLoaded', function () {
+        // Simulation controls
+        document.getElementById('startSimulation').addEventListener('click', startSimulation);
+        document.getElementById('stopSimulation').addEventListener('click', stopSimulation);
+        document.getElementById('resetEnvironment').addEventListener('click', resetEnvironment);
+
+        // Speed control
+        const speedSlider = document.getElementById('simulationSpeed');
+        const speedValue = document.getElementById('speedValue');
+
+        // Load saved speed from localStorage
+        const savedSpeed = localStorage.getItem('simulationSpeed');
+        if (savedSpeed) {
+            speedSlider.value = savedSpeed;
+            speedValue.textContent = savedSpeed + 's';
+        }
+
+        speedSlider.addEventListener('input', function () {
+            const speed = this.value;
+            speedValue.textContent = speed + 's';
+
+            // Save to localStorage
+            localStorage.setItem('simulationSpeed', speed);
+
+            // Update simulation speed via API
+            fetch('/api/simulation/speed', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ speed: parseFloat(speed) })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showToast('Error updating speed: ' + data.error, 'error');
+                    } else {
+                        console.log('Speed updated to:', data.speed);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error updating speed:', error);
+                });
+        });
+
+        // Broadcast message
+        document.getElementById('broadcastMessage').addEventListener('click', function () {
+            const modal = new bootstrap.Modal(document.getElementById('broadcastModal'));
+            modal.show();
+        });
+
+        document.getElementById('sendBroadcast').addEventListener('click', sendBroadcastMessage);
+
+        // Load recent interactions
+        loadRecentInteractions();
+
+        // Set up periodic updates
+        setInterval(updateDashboard, 5000);
+    });
+
+    function startSimulation() {
+        fetch('/api/simulation/start', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showToast('Error starting simulation: ' + data.error, 'error');
+                } else {
+                    showToast('Simulation started successfully', 'success');
+                    updateSimulationControls(true);
+                }
+            })
+            .catch(error => {
+                showToast('Error starting simulation: ' + error.message, 'error');
+            });
+    }
+
+    function stopSimulation() {
+        fetch('/api/simulation/stop', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showToast('Error stopping simulation: ' + data.error, 'error');
+                } else {
+                    showToast('Simulation stopped successfully', 'success');
+                    updateSimulationControls(false);
+                }
+            })
+            .catch(error => {
+                showToast('Error stopping simulation: ' + error.message, 'error');
+            });
+    }
+
+    function resetEnvironment() {
+        if (confirm('Are you sure you want to reset the environment? This will clear all agent interactions and memories.')) {
+            fetch('/api/environment/reset', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showToast('Error resetting environment: ' + data.error, 'error');
+                    } else {
+                        showToast('Environment reset successfully', 'success');
+                        loadRecentInteractions();
+                    }
+                })
+                .catch(error => {
+                    showToast('Error resetting environment: ' + error.message, 'error');
+                });
+        }
+    }
+
+    function sendBroadcastMessage() {
+        const message = document.getElementById('broadcastText').value.trim();
+        if (!message) {
+            showToast('Please enter a message', 'warning');
+            return;
+        }
+
+        fetch('/api/broadcast', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ message: message })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showToast('Error sending broadcast: ' + data.error, 'error');
+                } else {
+                    showToast('Broadcast sent successfully', 'success');
+                    document.getElementById('broadcastText').value = '';
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('broadcastModal'));
+                    modal.hide();
+                }
+            })
+            .catch(error => {
+                showToast('Error sending broadcast: ' + error.message, 'error');
+            });
+    }
+
+    function updateSimulationControls(running) {
+        document.getElementById('startSimulation').disabled = running;
+        document.getElementById('stopSimulation').disabled = !running;
+
+        const statusBadge = document.querySelector('.simulation-status .badge');
+        if (running) {
+            statusBadge.className = 'badge bg-success';
+            statusBadge.textContent = 'Running';
+        } else {
+            statusBadge.className = 'badge bg-secondary';
+            statusBadge.textContent = 'Stopped';
+        }
+    }
+
+    function loadRecentInteractions() {
+        fetch('/api/interactions?limit=10')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('recentInteractions');
+                container.innerHTML = '';
+
+                if (data.length === 0) {
+                    container.innerHTML = '<p class="text-muted">No recent interactions</p>';
+                    return;
+                }
+
+                data.forEach(interaction => {
+                    const item = document.createElement('div');
+                    item.className = 'interaction-item mb-2 p-2 border-start border-3 border-primary';
+
+                    const time = new Date(interaction.action.created_at).toLocaleTimeString();
+                    item.innerHTML = `
+                    <div class="d-flex justify-content-between">
+                        <strong>${interaction.agent_name}</strong>
+                        <small class="text-muted">${time}</small>
+                    </div>
+                    <div class="text-muted">${interaction.action.action_type}</div>
+                    <div>${interaction.action.description}</div>
+                `;
+
+                    container.appendChild(item);
+                });
+            })
+            .catch(error => {
+                console.error('Error loading interactions:', error);
+            });
+    }
+
+    function updateDashboard() {
+        // Update simulation status and recent interactions
+        loadRecentInteractions();
+
+        fetch('/api/simulation/status')
+            .then(response => response.json())
+            .then(data => {
+                updateSimulationControls(data.running);
+            })
+            .catch(error => {
+                console.error('Error updating dashboard:', error);
+            });
+    }
+</script>
+{% endblock %}
