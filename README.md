@@ -29,10 +29,22 @@ Visit: http://localhost:5000
 - **Frontend**: Bootstrap-based web interface with live updates
 - **Configuration**: YAML-based with environment overrides
 
-### Key Features
+## 🚀 Recent Updates & Features
+
+### ✨ Latest Enhancements (v1.1)
+
+- **🎯 Improved Agent Intelligence**: Enhanced prompting for more natural, personality-driven conversations
+- **⚡ Dynamic Action Cooldowns**: Simulation speed now affects action frequency (faster simulation = more agent activity)
+- **📊 Enhanced UI**: Better timestamp display with relative times ("2m ago", "1h ago")
+- **🎨 Action Type Badges**: Visual indicators for different action types (💬 Chat, 👁️ Observe, 🏛️ Society, etc.)
+- **👥 Name-Based Relationships**: Environment state now uses agent names instead of IDs for better readability
+- **💾 Speed Persistence**: Simulation speed settings are saved in browser localStorage
+- **🔄 Real-time Updates**: Live WebSocket updates for agent actions and interactions
+
+### 🎮 Key Features
 
 - 🤖 **Multi-Agent System**: Multiple LLM agents with distinct personalities
-- 🧠 **Memory Management**: Persistent conversation history and learning
+- 🧠 **Advanced Memory Management**: 50 short-term + 100 long-term memories with automatic summarization
 - 🌍 **Environment Simulation**: Shared virtual space for agent interactions
 - ⚡ **Real-time Updates**: Live web interface with Socket.IO
 - 🔧 **Flexible Configuration**: YAML config with local overrides
@@ -94,11 +106,20 @@ simulation:
 
 ## 🤖 Default Agents
 
-The system creates three sample agents by default:
+The system creates three sample agents by default with enhanced personalities:
 
-- **Alice** (Curious Explorer): Asks thoughtful questions
-- **Bob** (Logical Analyst): Provides structured analysis  
-- **Charlie** (Creative Storyteller): Brings imagination and creativity
+- **Alice** (Political Thinker): "Calm nature with interest in politics" - Focuses on leadership and societal structures
+- **Bob** (Social Networker): "Loves to gossip" - Enjoys sharing information and building social connections  
+- **Charlie** (Educator): "Happy guy, wants to be a teacher" - Brings educational wisdom and positive energy
+
+### Agent Behavior Types
+
+Agents can perform various autonomous actions:
+- **💬 Communicate**: Chat with other agents based on personality and history
+- **👁️ Observe**: Make observations about their environment and situation
+- **🏛️ Form Society**: Create communities and social groups
+- **🏛️ Create Government**: Establish governance structures
+- **🌟 Influence**: Shape the virtual environment around them
 
 ## � Database Schema
 
@@ -190,13 +211,41 @@ INSERT INTO actions (agent_id, action_type, description, target_agent_id, action
 (3, 'create_society', 'Proposed forming a collaborative storytelling group', NULL, '{"society_name": "Creative Minds Collective", "members": [1, 2, 3], "purpose": "collaborative creativity"}');
 ```
 
-#### Default Environment
-```sql
-INSERT INTO environment (name, description, rules, state, is_active) VALUES 
-('Default Simulation', 'A collaborative virtual environment where AI agents can interact, form relationships, and build societies.', 
-'{"communication": true, "action_cooldown": 5, "max_daily_actions": 100, "society_building": true, "governance_formation": true}',
-'{"societies": [], "governments": [], "global_influence": {}, "relationships": {}}', 
-true);
+#### Example Environment State (Enhanced with Names)
+```json
+{
+  "day": 1,
+  "events": [],
+  "global_influence": {
+    "Alice": 2.3,
+    "Bob": 1.8,
+    "Charlie": 3.1
+  },
+  "governments": [
+    {
+      "id": 1,
+      "name": "Alice's Leadership",
+      "leader": "Alice",
+      "type": "democracy"
+    }
+  ],
+  "relationships": {
+    "Alice→Bob": 5,
+    "Bob→Alice": 4,
+    "Alice→Charlie": 3,
+    "Charlie→Alice": 2,
+    "Bob→Charlie": 6,
+    "Charlie→Bob": 5
+  },
+  "societies": [
+    {
+      "id": 1,
+      "name": "Charlie's Circle",
+      "founder": "Charlie",
+      "members": ["Charlie", "Alice"]
+    }
+  ]
+}
 ```
 
 ### Database Relationships
@@ -366,10 +415,10 @@ Environments can be configured with custom rules:
 - **Government Formation**: Allow agents to create governments
 
 ### Memory System
-- **Short-term Memory**: Recent interactions (24-hour default expiry)
-- **Long-term Memory**: Important memories (no expiry)
-- **Importance Scoring**: Automatic promotion of important memories
-- **Memory Limits**: Configurable limits to prevent memory bloat
+- **Short-term Memory**: 50 recent interactions with automatic summarization at 40 memories
+- **Long-term Memory**: 100 important memories with importance-based cleanup
+- **Automatic Summarization**: Old memories are condensed to save space while preserving key information
+- **Conversation Context**: Agents remember previous interactions to avoid repetitive conversations
 
 ## Architecture
 
@@ -406,9 +455,10 @@ static/
 - `DELETE /api/agents/<id>` - Delete agent
 - `POST /api/agents/<id>/chat` - Chat with agent
 
-### Simulation
+### Simulation Control
 - `POST /api/simulation/start` - Start autonomous simulation
 - `POST /api/simulation/stop` - Stop simulation
+- `POST /api/simulation/speed` - Update simulation speed (0.5-10.0 seconds)
 - `GET /api/simulation/status` - Get simulation status
 
 ### Environment

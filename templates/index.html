@@ -354,14 +354,50 @@
                     const item = document.createElement('div');
                     item.className = 'interaction-item mb-2 p-2 border-start border-3 border-primary';
 
-                    const time = new Date(interaction.action.created_at).toLocaleTimeString();
+                    const date = new Date(interaction.action.created_at);
+                    const now = new Date();
+                    const diffInSeconds = Math.floor((now - date) / 1000);
+
+                    let timeDisplay;
+                    if (diffInSeconds < 60) {
+                        timeDisplay = `${diffInSeconds}s ago`;
+                    } else if (diffInSeconds < 3600) {
+                        timeDisplay = `${Math.floor(diffInSeconds / 60)}m ago`;
+                    } else if (diffInSeconds < 86400) {
+                        timeDisplay = `${Math.floor(diffInSeconds / 3600)}h ago`;
+                    } else {
+                        timeDisplay = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    }
+
+                    // Add action type styling
+                    let actionBadge = '';
+                    switch (interaction.action.action_type) {
+                        case 'communicate':
+                            actionBadge = '<span class="badge bg-primary">💬 Chat</span>';
+                            break;
+                        case 'observe':
+                            actionBadge = '<span class="badge bg-info">👁️ Observe</span>';
+                            break;
+                        case 'form_society':
+                            actionBadge = '<span class="badge bg-success">🏛️ Society</span>';
+                            break;
+                        case 'create_government':
+                            actionBadge = '<span class="badge bg-warning">🏛️ Government</span>';
+                            break;
+                        case 'influence':
+                            actionBadge = '<span class="badge bg-secondary">🌟 Influence</span>';
+                            break;
+                        default:
+                            actionBadge = `<span class="badge bg-light text-dark">${interaction.action.action_type}</span>`;
+                    }
+
                     item.innerHTML = `
-                    <div class="d-flex justify-content-between">
+                    <div class="d-flex justify-content-between align-items-center">
                         <strong>${interaction.agent_name}</strong>
-                        <small class="text-muted">${time}</small>
+                        <small class="text-muted">${timeDisplay}</small>
                     </div>
-                    <div class="text-muted">${interaction.action.action_type}</div>
-                    <div>${interaction.action.description}</div>
+                    <div class="mb-1">${actionBadge}</div>
+                    <div class="text-muted small">${interaction.action.description}</div>
                 `;
 
                     container.appendChild(item);

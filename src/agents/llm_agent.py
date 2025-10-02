@@ -205,13 +205,14 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
         return "\n".join(world_info)
     
     def take_action(self, action_type: str, description: str, 
-                   target_agent_id: int = None, metadata: Dict[str, Any] = None) -> bool:
+                   target_agent_id: int = None, metadata: Dict[str, Any] = None, 
+                   simulation_speed: float = 5.0) -> bool:
         """Attempt to take an action in the environment"""
         if not self.is_active():
             return False
         
         # Check if agent can act according to environment rules
-        if not self.environment_manager.can_agent_act(self.agent_id):
+        if not self.environment_manager.can_agent_act(self.agent_id, simulation_speed):
             return False
         
         # Record the action
@@ -232,7 +233,7 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
         
         return True
     
-    def communicate_with_agent(self, target_agent_id: int, message: str) -> str:
+    def communicate_with_agent(self, target_agent_id: int, message: str, simulation_speed: float = 5.0) -> str:
         """Communicate with another agent"""
         if not self.is_active():
             return "Cannot communicate - agent is not active"
@@ -247,7 +248,8 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
             "communicate",
             f"Sent message to {target_name}: {message}",
             target_agent_id=target_agent_id,
-            metadata={'message': message, 'target_name': target_name}
+            metadata={'message': message, 'target_name': target_name},
+            simulation_speed=simulation_speed
         )
         
         # Store in memory with higher importance for meaningful conversations
@@ -314,7 +316,7 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
             ]
             return random.choice(varied_greetings)
     
-    def form_society(self, society_name: str, description: str) -> bool:
+    def form_society(self, society_name: str, description: str, simulation_speed: float = 5.0) -> bool:
         """Attempt to form a new society"""
         return self.take_action(
             "form_society",
@@ -322,10 +324,11 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
             metadata={
                 'society_name': society_name,
                 'description': description
-            }
+            },
+            simulation_speed=simulation_speed
         )
     
-    def create_government(self, gov_name: str, gov_type: str, policies: List[str] = None) -> bool:
+    def create_government(self, gov_name: str, gov_type: str, policies: List[str] = None, simulation_speed: float = 5.0) -> bool:
         """Attempt to create a government"""
         return self.take_action(
             "create_government",
@@ -334,10 +337,11 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
                 'government_name': gov_name,
                 'government_type': gov_type,
                 'policies': policies or []
-            }
+            },
+            simulation_speed=simulation_speed
         )
     
-    def influence_environment(self, influence_type: str, change_amount: float = 0.1) -> bool:
+    def influence_environment(self, influence_type: str, change_amount: float = 0.1, simulation_speed: float = 5.0) -> bool:
         """Attempt to influence the environment"""
         return self.take_action(
             "influence",
@@ -345,10 +349,11 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
             metadata={
                 'influence_type': influence_type,
                 'influence_change': change_amount
-            }
+            },
+            simulation_speed=simulation_speed
         )
     
-    def autonomous_action(self) -> Optional[str]:
+    def autonomous_action(self, simulation_speed: float = 5.0) -> Optional[str]:
         """Perform an autonomous action based on current state and personality"""
         print(f"[DEBUG] {self.agent_data.name} attempting autonomous action...")
         print(f"[MEMORY] {self.agent_data.name} memory status: {self.memory_manager.get_memory_summary()}")
@@ -400,7 +405,7 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
                     # Create varied conversation based on history and personality
                     message = self._generate_contextual_message(target, conversation_history)
                     
-                    result = self.communicate_with_agent(target.id, message)
+                    result = self.communicate_with_agent(target.id, message, simulation_speed)
                     print(f"[COMM] Agent {self.agent_data.name} → {target.name}: {message}")
                     return f"Communicated with {target.name}: {message[:50]}..."
                 else:
@@ -409,19 +414,19 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
             
             elif action_choice == "FORM_SOCIETY":
                 society_name = f"{self.agent_data.name}'s Circle"
-                self.form_society(society_name, f"A society formed by {self.agent_data.name} based on their values")
+                self.form_society(society_name, f"A society formed by {self.agent_data.name} based on their values", simulation_speed)
                 print(f"[SOCIETY] Agent {self.agent_data.name}: Formed society: {society_name}")
                 return f"Formed society: {society_name}"
             
             elif action_choice == "CREATE_GOVERNMENT":
                 gov_name = f"{self.agent_data.name}'s Leadership"
-                self.create_government(gov_name, "democracy", ["Fairness", "Progress"])
+                self.create_government(gov_name, "democracy", ["Fairness", "Progress"], simulation_speed)
                 print(f"[GOVERNMENT] Agent {self.agent_data.name}: Created government: {gov_name}")
                 return f"Created government: {gov_name}"
             
             elif "INFLUENCE" in decision_upper:
                 print(f"[ACTION] {self.agent_data.name} chose to influence environment")
-                self.influence_environment("cultural_shift", 0.2)
+                self.influence_environment("cultural_shift", 0.2, simulation_speed)
                 print(f"[INFLUENCE] Agent {self.agent_data.name}: Influenced the environment")
                 return "Influenced the environment"
             
@@ -437,7 +442,7 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
             observation = self.generate_response(observation_prompt, f"You are {self.agent_data.name}. {self.agent_data.personality}. Respond naturally and briefly as yourself.")
             
             # Save observation action properly
-            self.take_action("observe", f"Observed: {observation}", metadata={'observation': observation})
+            self.take_action("observe", f"Observed: {observation}", metadata={'observation': observation}, simulation_speed=simulation_speed)
             print(f"[OBSERVE] Agent {self.agent_data.name}: {observation[:100]}...")
             return f"Observed: {observation[:100]}..."
             

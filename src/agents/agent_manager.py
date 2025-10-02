@@ -185,7 +185,7 @@ class AgentManager:
                         try:
                             print(f"[SIMULATION] Agent {i+1}/{len(active_agents)}: {agent.agent_data.name} taking action...")
                             # Each agent has a chance to take an autonomous action
-                            action_result = agent.autonomous_action()
+                            action_result = agent.autonomous_action(self.simulation_speed)
                             if action_result:
                                 print(f"[RESULT] Agent {agent.agent_data.name}: {action_result}")
                                 

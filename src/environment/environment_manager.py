@@ -132,7 +132,7 @@ class EnvironmentManager:
         
         return json.loads(env.rules) if env.rules else {}
     
-    def can_agent_act(self, agent_id: int) -> bool:
+    def can_agent_act(self, agent_id: int, simulation_speed: float = 5.0) -> bool:
         """Check if an agent can perform an action based on environment rules"""
         self._ensure_initialized()
         rules = self.get_environment_rules()
@@ -147,13 +147,18 @@ class EnvironmentManager:
         if today_actions >= max_daily_actions:
             return False
         
-        # Check cooldown
-        action_cooldown = rules.get('action_cooldown', 5)
+        # Dynamic cooldown based on simulation speed
+        # If simulation speed is faster, allow more frequent actions
+        base_cooldown = rules.get('action_cooldown', 5)
+        # Scale cooldown with simulation speed, but minimum 0.5 seconds
+        dynamic_cooldown = max(0.5, min(base_cooldown, simulation_speed * 0.8))
+        
         last_action = Action.query.filter_by(agent_id=agent_id).order_by(Action.created_at.desc()).first()
         
         if last_action:
             time_since_last = (datetime.utcnow() - last_action.created_at).total_seconds()
-            if time_since_last < action_cooldown:
+            if time_since_last < dynamic_cooldown:
+                print(f"[COOLDOWN] Agent {agent_id} must wait {dynamic_cooldown - time_since_last:.1f}s more")
                 return False
         
         return True
@@ -201,17 +206,33 @@ class EnvironmentManager:
         if not rules.get('communication', True):
             return
         
-        # Update relationships
+        # Update relationships using agent names instead of IDs
         if action.target_agent_id:
-            relationships = state.get('relationships', {})
-            agent_key = f"{action.agent_id}_{action.target_agent_id}"
-            relationships[agent_key] = relationships.get(agent_key, 0) + 1
-            state['relationships'] = relationships
+            # Get agent names
+            from models import Agent
+            sender = Agent.query.get(action.agent_id)
+            target = Agent.query.get(action.target_agent_id)
+            
+            if sender and target:
+                relationships = state.get('relationships', {})
+                # Use names for better readability
+                sender_to_target = f"{sender.name}→{target.name}"
+                target_to_sender = f"{target.name}→{sender.name}"
+                
+                # Update both directions of the relationship
+                relationships[sender_to_target] = relationships.get(sender_to_target, 0) + 1
+                
+                state['relationships'] = relationships
     
     def _process_society_formation(self, action: Action, state: Dict[str, Any], rules: Dict[str, Any]):
         """Process society formation"""
         if not rules.get('society_building', True):
             return
+        
+        # Get agent name for better readability
+        from models import Agent
+        founder = Agent.query.get(action.agent_id)
+        founder_name = founder.name if founder else f"Agent {action.agent_id}"
         
         societies = state.get('societies', [])
         metadata = json.loads(action.action_metadata) if action.action_metadata else {}
@@ -219,8 +240,8 @@ class EnvironmentManager:
         society = {
             'id': len(societies) + 1,
             'name': metadata.get('society_name', f"Society {len(societies) + 1}"),
-            'founder': action.agent_id,
-            'members': [action.agent_id],
+            'founder': founder_name,
+            'members': [founder_name],
             'created_at': action.created_at.isoformat(),
             'influence': 1.0
         }
@@ -233,13 +254,18 @@ class EnvironmentManager:
         if not rules.get('governance_formation', True):
             return
         
+        # Get agent name for better readability
+        from models import Agent
+        leader = Agent.query.get(action.agent_id)
+        leader_name = leader.name if leader else f"Agent {action.agent_id}"
+        
         governments = state.get('governments', [])
         metadata = json.loads(action.action_metadata) if action.action_metadata else {}
         
         government = {
             'id': len(governments) + 1,
             'name': metadata.get('government_name', f"Government {len(governments) + 1}"),
-            'leader': action.agent_id,
+            'leader': leader_name,
             'type': metadata.get('government_type', 'democracy'),
             'created_at': action.created_at.isoformat(),
             'influence': 1.0,
@@ -251,13 +277,18 @@ class EnvironmentManager:
     
     def _process_influence(self, action: Action, state: Dict[str, Any], rules: Dict[str, Any]):
         """Process influence changes"""
+        # Get agent name for better readability
+        from models import Agent
+        agent = Agent.query.get(action.agent_id)
+        agent_name = agent.name if agent else f"Agent {action.agent_id}"
+        
         global_influence = state.get('global_influence', {})
-        agent_id_str = str(action.agent_id)
         
         metadata = json.loads(action.action_metadata) if action.action_metadata else {}
         influence_change = metadata.get('influence_change', 0.1)
         
-        global_influence[agent_id_str] = global_influence.get(agent_id_str, 0) + influence_change
+        # Use agent name instead of ID
+        global_influence[agent_name] = global_influence.get(agent_name, 0) + influence_change
         state['global_influence'] = global_influence
     
     def get_recent_actions(self, limit: int = 50) -> List[Action]:
