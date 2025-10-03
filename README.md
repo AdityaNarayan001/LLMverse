@@ -31,7 +31,13 @@ Visit: http://localhost:5000
 
 ## 🚀 Recent Updates & Features
 
-### ✨ Latest Enhancements (v1.1)
+### ✨ Latest Enhancements (v1.2)
+
+- **🛡️ Smart Message Filtering**: Agents now intelligently filter irrelevant messages (math questions, programming code, etc.) and redirect users to their intended purpose
+- **⏰ Improved Timestamps**: Enhanced chat timestamp formatting with consistent 12-hour format and better visual presentation
+- **🎯 Purpose-Driven Responses**: Agents provide helpful redirects based on their personality when receiving off-topic messages
+
+### Previous Updates (v1.1)
 
 - **🎯 Improved Agent Intelligence**: Enhanced prompting for more natural, personality-driven conversations
 - **⚡ Dynamic Action Cooldowns**: Simulation speed now affects action frequency (faster simulation = more agent activity)
@@ -384,6 +390,7 @@ python -c "from src.providers.ollama_provider import OllamaProvider; print(Ollam
 - **Direct Communication**: Chat directly with any active agent
 - **Real-time Responses**: Get immediate responses based on agent personality
 - **Message History**: See conversation history
+- **Smart Filtering**: Agents automatically filter irrelevant messages (math, programming, etc.) and provide helpful redirects
 
 #### Environment Control
 - **Multiple Environments**: Switch between different simulation environments
@@ -478,16 +485,21 @@ static/
    - Verify API keys in `.env` file
    - Ensure provider service is running (especially for Ollama)
 
-2. **Database errors**:
+2. **Agents giving "redirect" responses**:
+   - This is expected behavior for off-topic messages (math, programming, etc.)
+   - Agents are designed to stay focused on social interaction and their personalities
+   - Try asking questions related to community, relationships, or the agent's specific interests
+
+3. **Database errors**:
    - Try deleting `llmverse.db` and restarting the application
    - Check file permissions in the project directory
 
-3. **WebSocket connection issues**:
+4. **WebSocket connection issues**:
    - Refresh the browser page
    - Check browser console for errors
    - Ensure no firewall is blocking WebSocket connections
 
-4. **Memory issues with large simulations**:
+5. **Memory issues with large simulations**:
    - Reduce the number of active agents
    - Reset the environment periodically
    - Adjust memory retention settings

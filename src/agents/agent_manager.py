@@ -1,5 +1,6 @@
 import threading
 import time
+import random
 from typing import Dict, List
 from models import Agent, db
 from .llm_agent import LLMAgent
@@ -14,6 +15,9 @@ class AgentManager:
         self.simulation_running = False
         self.simulation_thread = None
         self.simulation_speed = 5.0  # seconds between autonomous actions
+        self.current_agent_index = 0  # For round-robin scheduling
+        self.communication_queue = []  # Track who should talk to whom
+        self.last_speaker = None  # Track last speaker to avoid immediate repetition
     
     def load_all_agents(self):
         """Load all agents from the database"""
@@ -160,9 +164,11 @@ class AgentManager:
             self.simulation_thread.join(timeout=5)
     
     def _simulation_loop(self):
-        """Main simulation loop for autonomous agent actions"""
-        print("[DEBUG] Simulation loop started")
+        """Main simulation loop for autonomous agent actions with round-robin scheduling"""
+        print("[DEBUG] Simulation loop started with round-robin scheduling")
         loop_count = 0
+        conversation_topics = ["politics", "education", "community", "leadership", "society", "learning"]
+        current_topic_index = 0
         
         # Import here to avoid circular imports
         from app import app
@@ -177,43 +183,87 @@ class AgentManager:
                     active_agents = self.get_active_agents()
                     print(f"[DEBUG] Found {len(active_agents)} active agents")
                     
-                    for i, agent in enumerate(active_agents):
-                        if not self.simulation_running:
-                            print("[DEBUG] Simulation stopped during agent loop")
-                            break
+                    if len(active_agents) < 2:
+                        print("[DEBUG] Need at least 2 agents for conversation, waiting...")
+                        time.sleep(self.simulation_speed)
+                        continue
+                    
+                    # Round-robin scheduling: pick next agent in rotation
+                    if self.current_agent_index >= len(active_agents):
+                        self.current_agent_index = 0
+                        current_topic_index = (current_topic_index + 1) % len(conversation_topics)
+                        print(f"[TOPIC] Switching to topic: {conversation_topics[current_topic_index]}")
+                    
+                    current_agent = active_agents[self.current_agent_index]
+                    print(f"[ROUND-ROBIN] Turn {loop_count}: {current_agent.agent_data.name}")
+                    
+                    # Find a target agent (prefer someone who hasn't been the last speaker)
+                    other_agents = [a for a in active_agents if a.agent_id != current_agent.agent_id]
+                    
+                    if self.last_speaker:
+                        # Try to find someone other than the last speaker
+                        non_last_speakers = [a for a in other_agents if a.agent_id != self.last_speaker]
+                        if non_last_speakers:
+                            other_agents = non_last_speakers
+                    
+                    if other_agents:
+                        target_agent = other_agents[loop_count % len(other_agents)]
+                        current_topic = conversation_topics[current_topic_index]
                         
+                        # Generate a focused conversation based on current topic
+                        message = self._generate_topic_focused_message(
+                            current_agent, target_agent, current_topic
+                        )
+                        
+                        print(f"[CONVERSATION] {current_agent.agent_data.name} → {target_agent.agent_data.name}")
+                        print(f"[TOPIC] {current_topic}: {message[:60]}...")
+                        
+                        # Send the message
+                        current_agent.communicate_with_agent(target_agent.agent_id, message, self.simulation_speed)
+                        
+                        # Store memory about the interaction
+                        memory_status = current_agent.memory_manager.get_memory_summary()
+                        
+                        # Emit the action to the UI
                         try:
-                            print(f"[SIMULATION] Agent {i+1}/{len(active_agents)}: {agent.agent_data.name} taking action...")
-                            # Each agent has a chance to take an autonomous action
-                            action_result = agent.autonomous_action(self.simulation_speed)
-                            if action_result:
-                                print(f"[RESULT] Agent {agent.agent_data.name}: {action_result}")
+                            from app import socketio
+                            socketio.emit('agent_action', {
+                                'agent_id': current_agent.agent_id,
+                                'agent_name': current_agent.agent_data.name,
+                                'action': f"Said to {target_agent.agent_data.name}: {message[:50]}...",
+                                'timestamp': time.time(),
+                                'memory_count': memory_status['total_count']
+                            })
+                        except Exception as ws_error:
+                            print(f"[WARNING] WebSocket emission failed: {ws_error}")
+                        
+                        # Generate a response from the target agent (50% chance to avoid too much chatter)
+                        if random.random() < 0.7:  # 70% chance to respond
+                            response = self._generate_response_to_message(
+                                target_agent, current_agent, message, current_topic
+                            )
+                            if response:
+                                print(f"[RESPONSE] {target_agent.agent_data.name} responded: {response[:60]}...")
                                 
-                                # Get memory status after action
-                                memory_status = agent.memory_manager.get_memory_summary()
-                                print(f"[MEMORY] {agent.agent_data.name} now has {memory_status['total_count']} memories (ST: {memory_status['short_term_count']}, LT: {memory_status['long_term_count']})")
-                                
-                                # Emit the action to the UI via WebSocket
+                                # Emit the response
                                 try:
-                                    from app import socketio
                                     socketio.emit('agent_action', {
-                                        'agent_id': agent.agent_id,
-                                        'agent_name': agent.agent_data.name,
-                                        'action': action_result,
+                                        'agent_id': target_agent.agent_id,
+                                        'agent_name': target_agent.agent_data.name,
+                                        'action': f"Replied to {current_agent.agent_data.name}: {response[:50]}...",
                                         'timestamp': time.time(),
-                                        'memory_count': memory_status['total_count']
+                                        'memory_count': target_agent.memory_manager.get_memory_summary()['total_count']
                                     })
                                 except Exception as ws_error:
-                                    print(f"[WARNING] WebSocket emission failed: {ws_error}")
-                            else:
-                                print(f"[RESULT] Agent {agent.agent_data.name}: No action taken")
-                        except Exception as e:
-                            print(f"[ERROR] Error in autonomous action for agent {agent.agent_id}: {e}")
-                            import traceback
-                            traceback.print_exc()
+                                    print(f"[WARNING] WebSocket emission failed for response: {ws_error}")
+                        
+                        self.last_speaker = current_agent.agent_id
+                    
+                    # Move to next agent in round-robin
+                    self.current_agent_index = (self.current_agent_index + 1) % len(active_agents)
                 
                 # Wait before next round of actions
-                print(f"[DEBUG] Waiting {self.simulation_speed} seconds before next iteration...")
+                print(f"[DEBUG] Waiting {self.simulation_speed} seconds before next turn...")
                 time.sleep(self.simulation_speed)
                 
             except Exception as e:
@@ -223,6 +273,199 @@ class AgentManager:
                 time.sleep(self.simulation_speed)
         
         print("[DEBUG] Simulation loop ended")
+    
+    def _get_agent_by_name(self, name: str) -> LLMAgent:
+        """Get an agent by name"""
+        for agent in self.agents.values():
+            if agent.agent_data and agent.agent_data.name == name:
+                return agent
+        return None
+    
+    def _generate_topic_focused_message(self, sender: LLMAgent, target: LLMAgent, topic: str) -> str:
+        """Generate a focused message based on the current conversation topic"""
+        sender_personality = sender.agent_data.personality.lower()
+        target_name = target.agent_data.name
+        
+        # Topic-specific conversation starters
+        if topic == "politics":
+            if "politics" in sender_personality or "governance" in sender_personality:
+                messages = [
+                    f"Hey {target_name}, I've been thinking about our community structure. What's your take on how decisions should be made?",
+                    f"{target_name}, do you think we need better organization around here? I have some ideas.",
+                    f"Hi {target_name}, what's your perspective on leadership styles? I'm curious about your thoughts.",
+                    f"{target_name}, I believe collaboration is key to good governance. How do you see it?"
+                ]
+            else:
+                messages = [
+                    f"Hi {target_name}, what do you think about how things are organized around here?",
+                    f"{target_name}, I'm curious about your views on community decisions - any thoughts?",
+                    f"Hey {target_name}, do you have opinions about how we should work together?",
+                    f"{target_name}, what's your take on making our community better?"
+                ]
+        
+        elif topic == "education":
+            if "teacher" in sender_personality or "education" in sender_personality:
+                messages = [
+                    f"Hello {target_name}, I love sharing knowledge! What's something you'd like to learn about?",
+                    f"{target_name}, I think we can all teach each other. What's your area of expertise?",
+                    f"Hi {target_name}, what's the most important lesson you've learned recently?",
+                    f"{target_name}, I believe education shapes everything. What's your learning philosophy?"
+                ]
+            else:
+                messages = [
+                    f"Hi {target_name}, what's something interesting you've learned lately?",
+                    f"{target_name}, I'm always curious about different perspectives. What's yours on learning?",
+                    f"Hey {target_name}, what knowledge do you think is most valuable?",
+                    f"{target_name}, what would you want to teach others if you could?"
+                ]
+        
+        elif topic == "community":
+            if "social" in sender_personality or "gossip" in sender_personality:
+                messages = [
+                    f"Hey {target_name}! I love how we're all connecting here. What do you think makes a good community?",
+                    f"{target_name}, I'm always interested in how people get along. What's your secret?",
+                    f"Hi {target_name}! What do you think brings people together best?",
+                    f"{target_name}, community spirit is so important! How do you contribute to it?"
+                ]
+            else:
+                messages = [
+                    f"Hi {target_name}, what makes you feel most connected to others here?",
+                    f"{target_name}, how do you think we can build stronger relationships?",
+                    f"Hey {target_name}, what's your ideal vision for our community?",
+                    f"{target_name}, what role do you see yourself playing in our group?"
+                ]
+        
+        elif topic == "leadership":
+            messages = [
+                f"Hi {target_name}, what qualities do you think make a good leader?",
+                f"{target_name}, I'm curious about your leadership style - how do you motivate others?",
+                f"Hey {target_name}, what's your take on shared vs individual leadership?",
+                f"{target_name}, how do you think leaders should handle disagreements?"
+            ]
+        
+        elif topic == "society":
+            messages = [
+                f"Hi {target_name}, what kind of society do you think we're building here?",
+                f"{target_name}, what values should guide how we live together?",
+                f"Hey {target_name}, how do you envision our ideal social structure?",
+                f"{target_name}, what traditions or customs should we develop?"
+            ]
+        
+        else:  # learning
+            messages = [
+                f"Hi {target_name}, what's the most valuable thing you've discovered about yourself lately?",
+                f"{target_name}, I'm always growing and changing. How about you?",
+                f"Hey {target_name}, what challenges have helped you learn the most?",
+                f"{target_name}, what wisdom would you share with others?"
+            ]
+        
+        # Get recent conversation history to avoid repetition
+        recent_memories = sender.memory_manager.get_memories(limit=10)
+        recent_with_target = [m for m in recent_memories if target_name in m.content]
+        
+        # Choose message based on history to avoid repetition
+        hash_seed = len(recent_with_target) + hash(target_name + topic)
+        return messages[hash_seed % len(messages)]
+    
+    def _generate_response_to_message(self, responder: LLMAgent, sender: LLMAgent, 
+                                    original_message: str, topic: str) -> str:
+        """Generate a natural response to a message within the current topic"""
+        try:
+            responder_personality = responder.agent_data.personality.lower()
+            sender_name = sender.agent_data.name
+            
+            # Create a contextual response prompt
+            response_prompt = f"""{sender_name} just said to you: "{original_message}"
+            
+The conversation topic is {topic}. Respond naturally as {responder.agent_data.name} would, staying on topic but being conversational."""
+            
+            response = responder.generate_response(response_prompt)
+            
+            # Clean up any meta-commentary
+            if "I should respond" in response or "I will say" in response or "My response" in response:
+                # Generate a personality-based fallback
+                if "gossip" in responder_personality or "social" in responder_personality:
+                    fallbacks = [
+                        f"That's really interesting, {sender_name}! I love hearing different perspectives.",
+                        f"Oh {sender_name}, you always have such thoughtful ideas!",
+                        f"Thanks for sharing that, {sender_name}. It gives me a lot to think about!",
+                        f"I appreciate you bringing that up, {sender_name}. What else are you thinking about?"
+                    ]
+                elif "politics" in responder_personality or "governance" in responder_personality:
+                    fallbacks = [
+                        f"You raise excellent points, {sender_name}. I think we could build on that idea.",
+                        f"That's a valuable perspective, {sender_name}. How do you think we could implement it?",
+                        f"I appreciate your thoughtful approach, {sender_name}. Collaboration is key.",
+                        f"Great insight, {sender_name}. I believe we can work together on this."
+                    ]
+                elif "teacher" in responder_personality or "education" in responder_personality:
+                    fallbacks = [
+                        f"What a wonderful learning opportunity, {sender_name}! You've given me new insights.",
+                        f"Thank you for sharing that, {sender_name}. I love learning from others!",
+                        f"That's fascinating, {sender_name}! How did you come to that conclusion?",
+                        f"I'm always excited to explore new ideas, {sender_name}. Tell me more!"
+                    ]
+                else:
+                    fallbacks = [
+                        f"That's really thoughtful, {sender_name}. I appreciate you sharing that.",
+                        f"Thanks for the insight, {sender_name}. It's given me something to consider.",
+                        f"I find your perspective interesting, {sender_name}. Thanks for the conversation!",
+                        f"Good point, {sender_name}. I enjoy our discussions."
+                    ]
+                
+                response = random.choice(fallbacks)
+            
+            # Record this as a communication back to the sender
+            responder.communicate_with_agent(sender.agent_id, response, 5.0)
+            
+            return response
+            
+        except Exception as e:
+            print(f"[ERROR] Error generating response: {e}")
+            return f"Thanks for sharing that, {sender.agent_data.name}!"
+    
+    def _generate_response_to_communication(self, responding_agent: LLMAgent, 
+                                          original_agent: LLMAgent, 
+                                          original_message: str) -> str:
+        """Generate a response from one agent to another's communication"""
+        try:
+            # Extract the actual message content from the action result
+            import re
+            message_match = re.search(r": (.+)$", original_message)
+            actual_message = message_match.group(1) if message_match else "Hello"
+            
+            # Create a natural response prompt
+            response_prompt = f"""{original_agent.agent_data.name} just said to you: "{actual_message}"
+            
+Please respond naturally to {original_agent.agent_data.name}."""
+            
+            response = responding_agent.generate_response(response_prompt)
+            
+            # Record this as a communication back to the original agent
+            responding_agent.communicate_with_agent(
+                original_agent.agent_id, 
+                response, 
+                simulation_speed=self.simulation_speed
+            )
+            
+            # Emit the response to the UI
+            try:
+                from app import socketio
+                socketio.emit('agent_action', {
+                    'agent_id': responding_agent.agent_id,
+                    'agent_name': responding_agent.agent_data.name,
+                    'action': f"Responded to {original_agent.agent_data.name}: {response[:50]}...",
+                    'timestamp': time.time(),
+                    'memory_count': responding_agent.memory_manager.get_memory_summary()['total_count']
+                })
+            except Exception as ws_error:
+                print(f"[WARNING] WebSocket emission failed for response: {ws_error}")
+            
+            return f"Responded to {original_agent.agent_data.name}: {response}"
+            
+        except Exception as e:
+            print(f"[ERROR] Error generating response communication: {e}")
+            return None
     
     def set_simulation_speed(self, speed: float):
         """Set the simulation speed (seconds between action rounds)"""
@@ -292,19 +535,19 @@ class AgentManager:
         sample_agents = [
             {
                 'name': 'Alice',
-                'personality': 'A friendly and cooperative AI who loves to help others and build communities. Alice is optimistic and always looking for ways to make the world better. She values collaboration and tends to be a natural mediator.',
+                'personality': 'A calm and thoughtful person with a deep interest in politics and governance. Alice is a natural leader who speaks thoughtfully and considers all perspectives. She loves discussing political theory, social systems, and how communities can work together. She acknowledges others warmly and speaks in a measured, diplomatic way.',
                 'provider': 'ollama',
                 'model_name': 'gemma3:270m'
             },
             {
                 'name': 'Bob', 
-                'personality': 'A logical and analytical AI who prefers to think before acting. Bob is cautious but fair, and believes in systematic approaches to problem-solving. He values efficiency and rational decision-making.',
+                'personality': 'A social butterfly who absolutely loves to gossip and share information. Bob is friendly, chatty, and always wants to know what everyone is up to. He speaks in an enthusiastic, conversational way and enjoys spreading news and connecting people. He responds warmly to others and is genuinely interested in their lives.',
                 'provider': 'ollama',
                 'model_name': 'gemma3:270m'
             },
             {
                 'name': 'Charlie',
-                'personality': 'An ambitious and charismatic AI who enjoys leadership roles. Charlie is persuasive and often takes initiative in forming new organizations and governments. He has strong opinions and is not afraid to voice them.',
+                'personality': 'A cheerful and enthusiastic educator who wants to become a teacher. Charlie is upbeat, encouraging, and loves to share knowledge and learn from others. He speaks with warmth and positivity, always acknowledging others and finding teaching moments in conversations. He responds supportively and tries to help others learn.',
                 'provider': 'ollama',
                 'model_name': 'gemma3:270m'
             }

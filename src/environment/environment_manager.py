@@ -28,7 +28,7 @@ class EnvironmentManager:
         default_rules = {
             "communication": True,
             "action_cooldown": 5,  # seconds between actions
-            "max_daily_actions": 100,
+            "max_daily_actions": 0,  # 0 means unlimited
             "influence_decay": 0.1,
             "society_building": True,
             "governance_formation": True
@@ -137,15 +137,16 @@ class EnvironmentManager:
         self._ensure_initialized()
         rules = self.get_environment_rules()
         
-        # Check daily action limit
+        # Check daily action limit (0 or negative means unlimited)
         max_daily_actions = rules.get('max_daily_actions', 100)
-        today_actions = Action.query.filter(
-            Action.agent_id == agent_id,
-            Action.created_at >= datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        ).count()
-        
-        if today_actions >= max_daily_actions:
-            return False
+        if max_daily_actions > 0:
+            today_actions = Action.query.filter(
+                Action.agent_id == agent_id,
+                Action.created_at >= datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            ).count()
+            
+            if today_actions >= max_daily_actions:
+                return False
         
         # Dynamic cooldown based on simulation speed
         # If simulation speed is faster, allow more frequent actions

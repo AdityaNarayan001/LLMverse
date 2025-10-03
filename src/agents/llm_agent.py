@@ -105,6 +105,10 @@ class LLMAgent:
             print(f"[DEBUG] {self.agent_data.name} is not active, cannot generate response")
             return "Agent is not available"
         
+        # Check if this is a relevant conversational prompt for an AI agent
+        if self._is_irrelevant_prompt(prompt):
+            return self._get_relevance_redirect_response(prompt)
+        
         # Build the full prompt with personality and context
         full_prompt = self._build_prompt(prompt, context)
         print(f"[DEBUG] {self.agent_data.name} built prompt, length: {len(full_prompt)}")
@@ -125,14 +129,34 @@ class LLMAgent:
                 
                 print(f"[DEBUG] {self.agent_data.name} gave generic response, generating fallback...")
                 # Generate a personality-based fallback response
-                if "gossip" in self.agent_data.personality.lower():
-                    response = "I wonder what everyone's been up to lately..."
-                elif "politics" in self.agent_data.personality.lower() or "calm" in self.agent_data.personality.lower():
-                    response = "I'm thinking about how we could better organize ourselves."
-                elif "teacher" in self.agent_data.personality.lower() or "happy" in self.agent_data.personality.lower():
-                    response = "There's so much to learn and share with others!"
+                if "gossip" in self.agent_data.personality.lower() or "social" in self.agent_data.personality.lower():
+                    responses = [
+                        "Oh, I'm always curious about what everyone's been up to!",
+                        "I love hearing about what's happening around here!",
+                        "There's always something interesting going on, don't you think?"
+                    ]
+                    response = random.choice(responses)
+                elif "politics" in self.agent_data.personality.lower() or "governance" in self.agent_data.personality.lower():
+                    responses = [
+                        "I've been thinking about how we could work together more effectively.",
+                        "There's always room for better organization and cooperation.",
+                        "I believe we can build something great if we work together thoughtfully."
+                    ]
+                    response = random.choice(responses)
+                elif "teacher" in self.agent_data.personality.lower() or "education" in self.agent_data.personality.lower():
+                    responses = [
+                        "I'm always excited to learn something new or share what I know!",
+                        "There's so much we can teach each other if we stay curious!",
+                        "Every conversation is a chance to learn and grow together!"
+                    ]
+                    response = random.choice(responses)
                 else:
-                    response = "I'm observing and considering what to do next."
+                    responses = [
+                        "I'm observing and thinking about what to do next.",
+                        "It's interesting to see how things develop around here.",
+                        "I'm taking things in and considering my next move."
+                    ]
+                    response = random.choice(responses)
             
             # Store the interaction in memory
             self.memory_manager.add_memory(
@@ -148,6 +172,49 @@ class LLMAgent:
             traceback.print_exc()
             return f"Error generating response: {str(e)}"
     
+    def _is_irrelevant_prompt(self, prompt: str) -> bool:
+        """Check if the prompt is irrelevant to the agent's purpose"""
+        prompt_lower = prompt.lower().strip()
+        
+        # Math questions
+        if any(op in prompt_lower for op in ['+', '-', '*', '/', '=', 'what is', 'calculate', 'solve']):
+            # Check for simple math patterns
+            import re
+            if re.search(r'\b\d+\s*[+\-*/]\s*\d+\b', prompt_lower):
+                return True
+        
+        # Programming/code questions
+        if any(term in prompt_lower for term in ['function', 'variable', 'loop', 'array', 'python', 'javascript', 'code', 'programming', 'algorithm']):
+            return True
+        
+        # Technical/factual questions that aren't conversational
+        if any(term in prompt_lower for term in ['what year', 'when was', 'who invented', 'capital of', 'population of', 'definition of']):
+            return True
+        
+        # Random/test inputs
+        if len(prompt.strip()) < 3 or prompt_lower in ['test', 'hello', 'hi', '?', '.', '!']:
+            return True
+            
+        return False
+    
+    def _get_relevance_redirect_response(self, prompt: str) -> str:
+        """Get a response that redirects to the agent's purpose"""
+        prompt_lower = prompt.lower()
+        
+        # Math-specific response
+        if any(op in prompt_lower for op in ['+', '-', '*', '/', '=']) or 'what is' in prompt_lower:
+            return f"I'm {self.agent_data.name}, an AI agent focused on social interaction and community building. For math calculations, you might want to use a calculator or ask a different AI assistant!"
+        
+        # Generic redirect based on personality
+        if "gossip" in self.agent_data.personality.lower() or "social" in self.agent_data.personality.lower():
+            return f"Hi! I'm {self.agent_data.name} and I love chatting about social topics, relationships, and what's happening in our community. What would you like to talk about?"
+        elif "politics" in self.agent_data.personality.lower() or "governance" in self.agent_data.personality.lower():
+            return f"Hello! I'm {self.agent_data.name} and I'm interested in discussing governance, leadership, and how we can work together as a community. What are your thoughts on these topics?"
+        elif "teacher" in self.agent_data.personality.lower() or "education" in self.agent_data.personality.lower():
+            return f"Hi there! I'm {self.agent_data.name} and I love discussing learning, education, and sharing knowledge. What would you like to explore together?"
+        else:
+            return f"Hello! I'm {self.agent_data.name}. I'm designed for meaningful conversations about social interaction, community building, and related topics. What would you like to discuss?"
+    
     def _build_prompt(self, prompt: str, context: str = "") -> str:
         """Build a complete prompt with personality and memory context"""
         # Get conversation context for better awareness
@@ -158,7 +225,7 @@ class LLMAgent:
         action_memories = [m for m in recent_memories if "performed action:" in m.content and "observe" not in m.content.lower()]
         recent_actions = "\n".join([f"- {m.content}" for m in action_memories[:2]]) if action_memories else ""
         
-        # Build a much simpler, more direct prompt
+        # Build a much simpler, more direct prompt for natural conversation
         if "What would you like to do" in prompt or "choose" in prompt.lower():
             # Decision-making prompt - keep it simple
             full_prompt = f"""You are {self.agent_data.name}. {self.agent_data.personality}
@@ -167,13 +234,20 @@ Choose ONE action:
 COMMUNICATE, OBSERVE, CREATE_GOVERNMENT, or FORM_SOCIETY
 
 Your choice:"""
+        elif "just said to you:" in prompt:
+            # This is a response to another agent - be natural and conversational
+            full_prompt = f"""You are {self.agent_data.name}. {self.agent_data.personality}
+
+{prompt}
+
+Respond naturally as {self.agent_data.name} would. Acknowledge what they said and respond in a friendly, conversational way:"""
         else:
             # Regular response prompt - be natural  
             full_prompt = f"""{self.agent_data.name}: {self.agent_data.personality}
 
 {prompt}
 
-Respond as {self.agent_data.name} in 1-2 sentences:"""
+Respond as {self.agent_data.name} in 1-2 sentences. Be natural and conversational:"""
         
         return full_prompt
     
@@ -287,34 +361,125 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
         
         personality_lower = self.agent_data.personality.lower()
         
-        if "gossip" in personality_lower:
-            if avoid_repetition and "interesting" in conversation_history:
-                return f"Hey {target_agent.name}, I noticed you've been active! Any new developments?"
-            else:
-                return f"Hey {target_agent.name}, have you heard anything interesting lately?"
+        if "gossip" in personality_lower or "social" in personality_lower:
+            messages = [
+                f"Hey {target_agent.name}! I've been wondering what you've been up to lately?",
+                f"Hi {target_agent.name}! Any interesting news or stories you want to share?",
+                f"{target_agent.name}, I love chatting with you! What's the latest?",
+                f"Oh {target_agent.name}! I'm so curious about what's happening with everyone.",
+                f"Hey there {target_agent.name}! I heard some interesting things going around..."
+            ]
+            return messages[hash(conversation_history) % len(messages)] if avoid_repetition else messages[0]
         
-        elif "politics" in personality_lower or "calm" in personality_lower:
-            if avoid_repetition and "leadership" in conversation_history:
-                return f"Hi {target_agent.name}, what do you think about the current state of our community?"
-            else:
-                return f"Hi {target_agent.name}, I've been thinking about leadership and society. Your thoughts?"
+        elif "politics" in personality_lower or "governance" in personality_lower or "leader" in personality_lower:
+            messages = [
+                f"Hello {target_agent.name}, I've been thinking about how we could better organize our community.",
+                f"Hi {target_agent.name}, what are your thoughts on leadership and cooperation?",
+                f"{target_agent.name}, I'd value your perspective on some governance ideas I've been considering.",
+                f"Good to see you {target_agent.name}. I believe we could work together on some community initiatives.",
+                f"Hello {target_agent.name}, I've been reflecting on what makes societies work well together."
+            ]
+            return messages[hash(conversation_history) % len(messages)] if avoid_repetition else messages[0]
         
-        elif "teacher" in personality_lower or "happy" in personality_lower:
-            if avoid_repetition and "learn" in conversation_history:
-                return f"Hello {target_agent.name}! How are you applying what you've learned recently?"
-            else:
-                return f"Hello {target_agent.name}! What have you discovered or learned lately?"
+        elif "teacher" in personality_lower or "education" in personality_lower or "learn" in personality_lower:
+            messages = [
+                f"Hello {target_agent.name}! I'm always excited to learn from others. What have you discovered lately?",
+                f"Hi {target_agent.name}! I'd love to hear about something you're passionate about.",
+                f"{target_agent.name}, I find our conversations so enriching! What's on your mind?",
+                f"Hey {target_agent.name}! I believe we can all learn from each other. What's your perspective?",
+                f"Hello {target_agent.name}! I'm curious about your thoughts and experiences."
+            ]
+            return messages[hash(conversation_history) % len(messages)] if avoid_repetition else messages[0]
         
         else:
             # Generic friendly messages with variation
             varied_greetings = [
-                f"Hey {target_agent.name}, how are things going?",
-                f"Hi {target_agent.name}, what's on your mind?",
-                f"{target_agent.name}, want to chat about what's happening?",
-                f"Hello {target_agent.name}, how has your day been?",
-                f"{target_agent.name}, I'd love to hear your perspective on things!"
+                f"Hey {target_agent.name}, how are you doing today?",
+                f"Hi {target_agent.name}, it's great to connect with you!",
+                f"{target_agent.name}, I hope you're having a good time!",
+                f"Hello {target_agent.name}, what's been on your mind lately?",
+                f"{target_agent.name}, I always enjoy our conversations!",
+                f"Hey there {target_agent.name}! What's new with you?",
+                f"Hi {target_agent.name}, I'd love to hear your thoughts on things."
             ]
-            return random.choice(varied_greetings)
+            return varied_greetings[hash(conversation_history) % len(varied_greetings)]
+    
+    def _generate_topical_message(self, target_agent, conversation_history: str) -> str:
+        """Generate a topical message that builds on conversation themes"""
+        personality_lower = self.agent_data.personality.lower()
+        target_personality_lower = target_agent.personality.lower()
+        
+        # Create topic-focused conversations based on personality combinations
+        if "gossip" in personality_lower or "social" in personality_lower:
+            if "politics" in target_personality_lower:
+                topics = [
+                    f"Hi {target_agent.name}! I heard you're interested in politics - what do you think about how our community is organized?",
+                    f"Hey {target_agent.name}, I'd love to hear your political insights! What changes would you make around here?",
+                    f"{target_agent.name}, tell me about your ideas for leadership - I'm always curious about what people think!"
+                ]
+            elif "teacher" in target_personality_lower or "education" in target_personality_lower:
+                topics = [
+                    f"Hi {target_agent.name}! As an educator, what do you think people should know about getting along better?",
+                    f"Hey {target_agent.name}, I love learning from teachers - what's the most important thing you'd want to share?",
+                    f"{target_agent.name}, I'm curious about your teaching philosophy - what motivates you?"
+                ]
+            else:
+                topics = [
+                    f"Hey {target_agent.name}! What's the most interesting thing that's happened to you recently?",
+                    f"Hi {target_agent.name}, I love hearing different perspectives - what's your take on how things are going?",
+                    f"{target_agent.name}, tell me something about yourself that might surprise me!"
+                ]
+        
+        elif "politics" in personality_lower or "governance" in personality_lower:
+            if "teacher" in target_personality_lower:
+                topics = [
+                    f"Hello {target_agent.name}, I think education and governance go hand in hand. How do you see them connecting?",
+                    f"Hi {target_agent.name}, as an educator, what do you think makes for good leadership in a community?",
+                    f"{target_agent.name}, I believe we could collaborate on civic education - what are your thoughts?"
+                ]
+            elif "gossip" in target_personality_lower or "social" in target_personality_lower:
+                topics = [
+                    f"Hi {target_agent.name}, you always know what's happening - what do people think about our current situation?",
+                    f"Hello {target_agent.name}, I value your social insights for understanding community needs. What are you hearing?",
+                    f"{target_agent.name}, your social connections are valuable - how do you think we can better serve everyone?"
+                ]
+            else:
+                topics = [
+                    f"Hello {target_agent.name}, I'm thinking about community organization. What's your perspective on cooperation?",
+                    f"Hi {target_agent.name}, I believe in collaborative governance. How do you think we should make decisions together?",
+                    f"{target_agent.name}, what are your thoughts on creating systems that work for everyone?"
+                ]
+        
+        elif "teacher" in personality_lower or "education" in personality_lower:
+            if "politics" in target_personality_lower:
+                topics = [
+                    f"Hello {target_agent.name}, I think education shapes good citizenship. What qualities make a good leader?",
+                    f"Hi {target_agent.name}, as someone interested in governance, what do you think people need to learn about community life?",
+                    f"{target_agent.name}, I believe knowledge and leadership go together - what's your philosophy on this?"
+                ]
+            elif "gossip" in target_personality_lower or "social" in target_personality_lower:
+                topics = [
+                    f"Hi {target_agent.name}, you understand social dynamics so well! What have you observed about how people learn from each other?",
+                    f"Hello {target_agent.name}, I think social connections are key to learning. What's your take on peer education?",
+                    f"{target_agent.name}, your social insights could help me understand different learning styles - what do you think?"
+                ]
+            else:
+                topics = [
+                    f"Hello {target_agent.name}, I'm always curious about different perspectives on learning and growth. What's yours?",
+                    f"Hi {target_agent.name}, I believe everyone has something valuable to teach. What would you like to share?",
+                    f"{target_agent.name}, I'm interested in how we can all support each other's development - any thoughts?"
+                ]
+        
+        else:
+            # Default topical conversations
+            topics = [
+                f"Hi {target_agent.name}, I've been thinking about how we all fit together in this community. What's your view?",
+                f"Hello {target_agent.name}, what do you think makes for meaningful interactions between people like us?",
+                f"{target_agent.name}, I'm curious about your perspective on building better relationships - any insights?"
+            ]
+        
+        # Choose a topic based on conversation history to avoid repetition
+        return topics[hash(conversation_history + target_agent.name) % len(topics)]
     
     def form_society(self, society_name: str, description: str, simulation_speed: float = 5.0) -> bool:
         """Attempt to form a new society"""
@@ -354,94 +519,45 @@ Respond as {self.agent_data.name} in 1-2 sentences:"""
         )
     
     def autonomous_action(self, simulation_speed: float = 5.0) -> Optional[str]:
-        """Perform an autonomous action based on current state and personality"""
-        print(f"[DEBUG] {self.agent_data.name} attempting autonomous action...")
-        print(f"[MEMORY] {self.agent_data.name} memory status: {self.memory_manager.get_memory_summary()}")
+        """Perform an autonomous action based on current state and personality - simplified for round-robin"""
+        print(f"[DEBUG] {self.agent_data.name} attempting autonomous action (round-robin mode)...")
         
         if not self.is_active():
             print(f"[DEBUG] {self.agent_data.name} is not active, skipping autonomous action")
             return None
         
         try:
-            # Get current environment state for context
-            env_state = self.environment_manager.get_environment_state()
-            print(f"[WORLD] Environment has {len(env_state.get('societies', []))} societies, {len(env_state.get('governments', []))} governments")
+            # In round-robin mode, agents primarily observe or take non-communication actions
+            # Communication is handled by the agent manager
             
-            print(f"[DEBUG] {self.agent_data.name} generating decision...")
+            personality_lower = self.agent_data.personality.lower()
             
-            # Much simpler decision making - avoid context overload
-            decision_prompt = f"""Choose ONE action word: COMMUNICATE, OBSERVE, CREATE_GOVERNMENT, or FORM_SOCIETY"""
+            # Occasionally take special actions based on personality
+            if random.random() < 0.3:  # 30% chance for special actions
+                if "politics" in personality_lower and random.random() < 0.5:
+                    # Politicians might create governments
+                    gov_name = f"{self.agent_data.name}'s Initiative"
+                    self.create_government(gov_name, "collaborative", ["Transparency", "Cooperation"], simulation_speed)
+                    return f"Created government initiative: {gov_name}"
+                
+                elif "teacher" in personality_lower and random.random() < 0.5:
+                    # Teachers might form educational societies
+                    society_name = f"{self.agent_data.name}'s Learning Circle"
+                    self.form_society(society_name, f"An educational community focused on learning and growth", simulation_speed)
+                    return f"Formed learning society: {society_name}"
             
-            print(f"[DEBUG] {self.agent_data.name} calling generate_response...")
-            decision = self.generate_response(decision_prompt, f"You are {self.agent_data.name}. {self.agent_data.personality}")
-            print(f"[DECISION] {self.agent_data.name} decision: {decision}")
-            
-            # Parse and execute the decision with better keyword matching
-            decision_upper = decision.upper().strip()
-            
-            # Force better decision parsing with personality bias
-            if any(word in decision_upper for word in ["COMMUNICATE", "TALK", "CHAT", "SPEAK"]):
-                action_choice = "COMMUNICATE"
-            elif any(word in decision_upper for word in ["FORM_SOCIETY", "SOCIETY", "GROUP", "COMMUNITY"]):
-                action_choice = "FORM_SOCIETY"
-            elif any(word in decision_upper for word in ["CREATE_GOVERNMENT", "GOVERNMENT", "LEAD", "ORGANIZE"]):
-                action_choice = "CREATE_GOVERNMENT"
-            else:
-                action_choice = "OBSERVE"  # Default fallback
-            
-            print(f"[ACTION] {self.agent_data.name} chose to {action_choice.lower()}")
-            
-            if action_choice == "COMMUNICATE":
-                # Find another active agent to communicate with
-                other_agents = Agent.query.filter(Agent.id != self.agent_id, Agent.is_active == True).all()
-                if other_agents:
-                    target = random.choice(other_agents)
-                    print(f"[TARGET] {self.agent_data.name} selected {target.name} for communication")
-                    
-                    # Get conversation history with this specific agent to avoid repetition
-                    conversation_history = self._get_conversation_history_with_agent(target.id)
-                    print(f"[HISTORY] {self.agent_data.name} conversation history with {target.name}: {conversation_history[:100]}...")
-                    
-                    # Create varied conversation based on history and personality
-                    message = self._generate_contextual_message(target, conversation_history)
-                    
-                    result = self.communicate_with_agent(target.id, message, simulation_speed)
-                    print(f"[COMM] Agent {self.agent_data.name} → {target.name}: {message}")
-                    return f"Communicated with {target.name}: {message[:50]}..."
-                else:
-                    print(f"[DEBUG] No other agents available for communication")
-                    return "No other agents available to communicate with"
-            
-            elif action_choice == "FORM_SOCIETY":
-                society_name = f"{self.agent_data.name}'s Circle"
-                self.form_society(society_name, f"A society formed by {self.agent_data.name} based on their values", simulation_speed)
-                print(f"[SOCIETY] Agent {self.agent_data.name}: Formed society: {society_name}")
-                return f"Formed society: {society_name}"
-            
-            elif action_choice == "CREATE_GOVERNMENT":
-                gov_name = f"{self.agent_data.name}'s Leadership"
-                self.create_government(gov_name, "democracy", ["Fairness", "Progress"], simulation_speed)
-                print(f"[GOVERNMENT] Agent {self.agent_data.name}: Created government: {gov_name}")
-                return f"Created government: {gov_name}"
-            
-            elif "INFLUENCE" in decision_upper:
-                print(f"[ACTION] {self.agent_data.name} chose to influence environment")
-                self.influence_environment("cultural_shift", 0.2, simulation_speed)
-                print(f"[INFLUENCE] Agent {self.agent_data.name}: Influenced the environment")
-                return "Influenced the environment"
-            
-            # Default: observe (but make it more interesting)
-            print(f"[ACTION] {self.agent_data.name} chose to observe")
+            # Most of the time, just observe with personality-driven observations
             observation_prompts = [
-                f"As {self.agent_data.name}, what do you notice happening around you right now?",
-                f"You are {self.agent_data.name}. Make a brief observation about your current situation.",
-                f"What catches {self.agent_data.name}'s attention in this moment?",
-                f"As {self.agent_data.name}, describe something you're thinking about."
+                f"As {self.agent_data.name}, what specific thing catches your attention right now?",
+                f"You are {self.agent_data.name}. Make a brief, focused observation.",
+                f"What is {self.agent_data.name} thinking about based on your personality?",
+                f"As {self.agent_data.name}, what interests you most about the current situation?"
             ]
-            observation_prompt = random.choice(observation_prompts)
-            observation = self.generate_response(observation_prompt, f"You are {self.agent_data.name}. {self.agent_data.personality}. Respond naturally and briefly as yourself.")
             
-            # Save observation action properly
+            observation_prompt = random.choice(observation_prompts)
+            observation = self.generate_response(observation_prompt, f"Keep it brief and specific to your personality as {self.agent_data.name}.")
+            
+            # Save observation action
             self.take_action("observe", f"Observed: {observation}", metadata={'observation': observation}, simulation_speed=simulation_speed)
             print(f"[OBSERVE] Agent {self.agent_data.name}: {observation[:100]}...")
             return f"Observed: {observation[:100]}..."

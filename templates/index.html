@@ -104,25 +104,46 @@
 
                 <div id="agentList">
                     {% for agent in agents %}
-                    <div class="agent-item d-flex justify-content-between align-items-center mb-2 p-2 border rounded">
-                        <div class="d-flex align-items-center">
-                            <div class="status-indicator me-2">
-                                {% if agent.is_active %}
-                                <i class="fas fa-circle text-success" title="Active"></i>
-                                {% else %}
-                                <i class="fas fa-circle text-danger" title="Inactive"></i>
-                                {% endif %}
+                    <div class="agent-item mb-3 p-3 border rounded">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="d-flex align-items-center">
+                                <div class="status-indicator me-2">
+                                    {% if agent.is_active %}
+                                    <i class="fas fa-circle text-success" title="Active"></i>
+                                    {% else %}
+                                    <i class="fas fa-circle text-danger" title="Inactive"></i>
+                                    {% endif %}
+                                </div>
+                                <div>
+                                    <strong>{{ agent.name }}</strong>
+                                    <br>
+                                    <small class="text-muted">{{ agent.provider }} ({{ agent.model_name }})</small>
+                                </div>
                             </div>
-                            <div>
-                                <strong>{{ agent.name }}</strong>
-                                <br>
-                                <small class="text-muted">{{ agent.provider }} ({{ agent.model_name }})</small>
+                            <div class="agent-actions">
+                                <button class="btn btn-sm btn-outline-info me-1 view-memory"
+                                    data-agent-id="{{ agent.id }}" data-agent-name="{{ agent.name }}">
+                                    <i class="fas fa-brain"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-primary chat-agent"
+                                    data-agent-id="{{ agent.id }}">
+                                    <i class="fas fa-comment"></i>
+                                </button>
                             </div>
                         </div>
-                        <div class="agent-actions">
-                            <button class="btn btn-sm btn-outline-primary chat-agent" data-agent-id="{{ agent.id }}">
-                                <i class="fas fa-comment"></i>
-                            </button>
+
+                        <!-- Memory Summary -->
+                        <div class="memory-summary">
+                            <div class="row text-center">
+                                <div class="col-6">
+                                    <small class="text-muted">Short Term</small>
+                                    <div class="fw-bold text-info" id="st-memory-{{ agent.id }}">-</div>
+                                </div>
+                                <div class="col-6">
+                                    <small class="text-muted">Long Term</small>
+                                    <div class="fw-bold text-success" id="lt-memory-{{ agent.id }}">-</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     {% endfor %}
@@ -175,6 +196,45 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="sendBroadcast">Send</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Memory Modal -->
+<div class="modal fade" id="memoryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-brain"></i> <span id="memoryAgentName">Agent</span> Memory Bank
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-info">
+                            <i class="fas fa-clock"></i> Short Term Memory
+                            <span class="badge bg-info" id="stMemoryCount">0</span>
+                        </h6>
+                        <div id="shortTermMemories" class="memory-list" style="max-height: 400px; overflow-y: auto;">
+                            <!-- Short term memories will be loaded here -->
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-success">
+                            <i class="fas fa-bookmark"></i> Long Term Memory
+                            <span class="badge bg-success" id="ltMemoryCount">0</span>
+                        </h6>
+                        <div id="longTermMemories" class="memory-list" style="max-height: 400px; overflow-y: auto;">
+                            <!-- Long term memories will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -236,6 +296,15 @@
         });
 
         document.getElementById('sendBroadcast').addEventListener('click', sendBroadcastMessage);
+
+        // Memory viewer functionality
+        document.querySelectorAll('.view-memory').forEach(button => {
+            button.addEventListener('click', function () {
+                const agentId = this.getAttribute('data-agent-id');
+                const agentName = this.getAttribute('data-agent-name');
+                showAgentMemory(agentId, agentName);
+            });
+        });
 
         // Load recent interactions
         loadRecentInteractions();

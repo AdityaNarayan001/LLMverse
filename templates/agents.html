@@ -54,6 +54,10 @@
                                             data-agent-id="{{ agent.id }}">
                                             <i class="fas fa-comment"></i>
                                         </button>
+                                        <button class="btn btn-outline-info view-memory" data-agent-id="{{ agent.id }}"
+                                            data-agent-name="{{ agent.name }}">
+                                            <i class="fas fa-brain"></i>
+                                        </button>
                                         <button class="btn btn-outline-secondary edit-agent"
                                             data-agent-id="{{ agent.id }}">
                                             <i class="fas fa-edit"></i>
@@ -223,6 +227,86 @@
         </div>
     </div>
 </div>
+
+<!-- Memory Bank Modal -->
+<div class="modal fade" id="memoryBankModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="memoryBankTitle">Agent Memory Bank</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-primary text-white">
+                                <h6 class="mb-0"><i class="fas fa-clock"></i> Short-term Memory</h6>
+                                <small>Recent interactions and temporary thoughts</small>
+                            </div>
+                            <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                                <div id="shortTermMemories">
+                                    <div class="text-center text-muted">
+                                        <i class="fas fa-spinner fa-spin"></i> Loading memories...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-success text-white">
+                                <h6 class="mb-0"><i class="fas fa-archive"></i> Long-term Memory</h6>
+                                <small>Important experiences and learned knowledge</small>
+                            </div>
+                            <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                                <div id="longTermMemories">
+                                    <div class="text-center text-muted">
+                                        <i class="fas fa-spinner fa-spin"></i> Loading memories...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-md-12">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <h6 class="mb-0"><i class="fas fa-chart-bar"></i> Memory Statistics</h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="memoryStats" class="row text-center">
+                                    <div class="col-md-4">
+                                        <h4 id="shortTermCount" class="text-primary">-</h4>
+                                        <small class="text-muted">Short-term memories</small>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <h4 id="longTermCount" class="text-success">-</h4>
+                                        <small class="text-muted">Long-term memories</small>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <h4 id="totalMemoryCount" class="text-info">-</h4>
+                                        <small class="text-muted">Total memories</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger" id="deleteMemoriesBtn">
+                    <i class="fas fa-trash"></i> Delete All Memories
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="refreshMemoriesBtn">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -250,6 +334,33 @@
                 const agentId = this.dataset.agentId;
                 window.location.href = `/chat?agent=${agentId}`;
             });
+        });
+
+        document.querySelectorAll('.view-memory').forEach(btn => {
+            btn.addEventListener('click', function () {
+                const agentId = this.dataset.agentId;
+                const agentName = this.dataset.agentName;
+                openMemoryModal(agentId, agentName);
+            });
+        });
+
+        // Set up refresh button
+        document.getElementById('refreshMemoriesBtn').addEventListener('click', function () {
+            const agentId = this.dataset.agentId;
+            const agentName = this.dataset.agentName;
+            if (agentId) {
+                loadMemories(agentId, agentName);
+            }
+        });
+
+        // Set up delete memories button
+        document.getElementById('deleteMemoriesBtn').addEventListener('click', function () {
+            const refreshBtn = document.getElementById('refreshMemoriesBtn');
+            const agentId = refreshBtn.dataset.agentId;
+            const agentName = refreshBtn.dataset.agentName;
+            if (agentId) {
+                deleteAgentMemories(agentId, agentName);
+            }
         });
     });
 
@@ -310,7 +421,7 @@
                     showToast('Agent created successfully', 'success');
                     const modal = bootstrap.Modal.getInstance(document.getElementById('createAgentModal'));
                     modal.hide();
-                    location.reload(); // Refresh the page to show the new agent
+                    location.reload();
                 }
             })
             .catch(error => {
@@ -321,15 +432,11 @@
     function openEditModal(event) {
         const agentId = event.target.closest('button').dataset.agentId;
         const row = document.querySelector(`tr[data-agent-id="${agentId}"]`);
-
-        // Get agent data from the table row (simplified)
         const agentName = row.querySelector('td:nth-child(2)').textContent.trim();
 
-        // Set form values
         document.getElementById('editAgentId').value = agentId;
         document.getElementById('editAgentName').value = agentName;
 
-        // Show modal
         const modal = new bootstrap.Modal(document.getElementById('editAgentModal'));
         modal.show();
     }
@@ -361,7 +468,7 @@
                     showToast('Agent updated successfully', 'success');
                     const modal = bootstrap.Modal.getInstance(document.getElementById('editAgentModal'));
                     modal.hide();
-                    location.reload(); // Refresh the page to show the updates
+                    location.reload();
                 }
             })
             .catch(error => {
@@ -384,13 +491,117 @@
                         showToast('Error deleting agent: ' + data.error, 'error');
                     } else {
                         showToast('Agent deleted successfully', 'success');
-                        row.remove(); // Remove the row from the table
+                        row.remove();
                     }
                 })
                 .catch(error => {
                     showToast('Error deleting agent: ' + error.message, 'error');
                 });
         }
+    }
+
+    function openMemoryModal(agentId, agentName) {
+        document.getElementById('memoryBankTitle').textContent = `${agentName}'s Memory Bank`;
+
+        const refreshBtn = document.getElementById('refreshMemoriesBtn');
+        refreshBtn.dataset.agentId = agentId;
+        refreshBtn.dataset.agentName = agentName;
+
+        const modal = new bootstrap.Modal(document.getElementById('memoryBankModal'));
+        modal.show();
+
+        loadMemories(agentId, agentName);
+    }
+
+    function loadMemories(agentId, agentName) {
+        document.getElementById('shortTermMemories').innerHTML = '<div class="text-center text-muted"><i class="fas fa-spinner fa-spin"></i> Loading memories...</div>';
+        document.getElementById('longTermMemories').innerHTML = '<div class="text-center text-muted"><i class="fas fa-spinner fa-spin"></i> Loading memories...</div>';
+
+        fetch(`/api/agents/${agentId}/memories`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    document.getElementById('shortTermMemories').innerHTML = `<div class="alert alert-danger">Error: ${data.error}</div>`;
+                    document.getElementById('longTermMemories').innerHTML = `<div class="alert alert-danger">Error: ${data.error}</div>`;
+                    return;
+                }
+                displayMemories(data);
+            })
+            .catch(error => {
+                document.getElementById('shortTermMemories').innerHTML = `<div class="alert alert-danger">Failed to load memories: ${error.message}</div>`;
+                document.getElementById('longTermMemories').innerHTML = `<div class="alert alert-danger">Failed to load memories: ${error.message}</div>`;
+            });
+    }
+
+    function displayMemories(memoryData) {
+        const shortTermContainer = document.getElementById('shortTermMemories');
+        if (memoryData.short_term_memories && memoryData.short_term_memories.length > 0) {
+            shortTermContainer.innerHTML = memoryData.short_term_memories.map(memory => `
+                <div class="memory-item mb-3 p-3 border-start border-3 border-primary bg-light">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="badge bg-primary">Importance: ${memory.importance_score.toFixed(1)}</span>
+                        <small class="text-muted">${formatDate(memory.created_at)}</small>
+                    </div>
+                    <p class="mb-1">${memory.content}</p>
+                    ${memory.expires_at ? `<small class="text-warning"><i class="fas fa-clock"></i> Expires: ${formatDate(memory.expires_at)}</small>` : ''}
+                </div>
+            `).join('');
+        } else {
+            shortTermContainer.innerHTML = '<div class="text-center text-muted">No short-term memories</div>';
+        }
+
+        const longTermContainer = document.getElementById('longTermMemories');
+        if (memoryData.long_term_memories && memoryData.long_term_memories.length > 0) {
+            longTermContainer.innerHTML = memoryData.long_term_memories.map(memory => `
+                <div class="memory-item mb-3 p-3 border-start border-3 border-success bg-light">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="badge bg-success">Importance: ${memory.importance_score.toFixed(1)}</span>
+                        <small class="text-muted">${formatDate(memory.created_at)}</small>
+                    </div>
+                    <p class="mb-0">${memory.content}</p>
+                </div>
+            `).join('');
+        } else {
+            longTermContainer.innerHTML = '<div class="text-center text-muted">No long-term memories</div>';
+        }
+
+        document.getElementById('shortTermCount').textContent = memoryData.short_term_memories ? memoryData.short_term_memories.length : 0;
+        document.getElementById('longTermCount').textContent = memoryData.long_term_memories ? memoryData.long_term_memories.length : 0;
+        document.getElementById('totalMemoryCount').textContent = memoryData.total_count || 0;
+    }
+
+    function deleteAgentMemories(agentId, agentName) {
+        if (confirm(`Are you sure you want to delete ALL memories for ${agentName}? This action cannot be undone.`)) {
+            fetch(`/api/agents/${agentId}/memories`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showToast('Error deleting memories: ' + data.error, 'error');
+                    } else {
+                        showToast(`All memories deleted for ${agentName}`, 'success');
+                        loadMemories(agentId, agentName); // Refresh the memory display
+                    }
+                })
+                .catch(error => {
+                    showToast('Error deleting memories: ' + error.message, 'error');
+                });
+        }
+    }
+
+    function formatDate(dateString) {
+        const date = new Date(dateString);
+        return date.toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
     }
 </script>
 {% endblock %}

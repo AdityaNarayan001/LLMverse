@@ -242,6 +242,41 @@ def chat_with_agent(agent_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
+@app.route('/api/agents/<int:agent_id>/memories', methods=['GET'])
+def get_agent_memories(agent_id):
+    """Get agent's memories (short-term and long-term)"""
+    try:
+        agent = agent_manager.get_agent(agent_id)
+        if not agent:
+            return jsonify({'error': 'Agent not found'}), 404
+        
+        # Get memories from the memory manager
+        short_term_memories = agent.memory_manager.get_memories(memory_type='short_term')
+        long_term_memories = agent.memory_manager.get_memories(memory_type='long_term')
+        memory_summary = agent.memory_manager.get_memory_summary()
+        
+        # Convert to JSON-serializable format
+        def memory_to_dict(memory):
+            return {
+                'id': memory.id,
+                'content': memory.content,
+                'importance_score': memory.importance_score,
+                'created_at': memory.created_at.isoformat(),
+                'expires_at': memory.expires_at.isoformat() if memory.expires_at else None
+            }
+        
+        return jsonify({
+            'agent_id': agent_id,
+            'agent_name': agent.agent_data.name,
+            'short_term_memories': [memory_to_dict(m) for m in short_term_memories],
+            'long_term_memories': [memory_to_dict(m) for m in long_term_memories],
+            'total_count': memory_summary['total_count'],
+            'short_term_count': memory_summary['short_term_count'],
+            'long_term_count': memory_summary['long_term_count']
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
 @app.route('/api/simulation/start', methods=['POST'])
 def start_simulation():
     """Start the autonomous simulation"""
@@ -311,6 +346,54 @@ def reset_environment():
         })
         
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/environment/rules', methods=['PUT'])
+def update_environment_rules():
+    """Update environment rules"""
+    try:
+        data = request.json
+        
+        # Get current environment
+        current_env = Environment.query.filter_by(is_active=True).first()
+        if not current_env:
+            return jsonify({'error': 'No active environment found'}), 404
+        
+        # Update rules
+        import json
+        current_rules = json.loads(current_env.rules) if current_env.rules else {}
+        current_rules.update(data)
+        current_env.rules = json.dumps(current_rules)
+        current_env.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        # Emit update to connected clients
+        socketio.emit('environment_rules_updated', {
+            'rules': current_rules
+        })
+        
+        return jsonify({'success': True, 'rules': current_rules})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/agents/<int:agent_id>/memories', methods=['DELETE'])
+def delete_agent_memories(agent_id):
+    """Delete all memories for an agent"""
+    try:
+        agent = agent_manager.get_agent(agent_id)
+        if not agent:
+            return jsonify({'error': 'Agent not found'}), 404
+        
+        # Delete all memories for this agent
+        Memory.query.filter_by(agent_id=agent_id).delete()
+        db.session.commit()
+        
+        # Emit update to connected clients
+        socketio.emit('agent_memories_cleared', {'agent_id': agent_id})
+        
+        return jsonify({'success': True, 'message': f'All memories deleted for agent {agent.agent_data.name}'})
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
