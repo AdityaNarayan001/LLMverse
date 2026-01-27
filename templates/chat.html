@@ -297,7 +297,9 @@
     if (typeof socket !== 'undefined') {
         socket.on('agent_interaction', function (data) {
             // Handle real-time agent interactions if needed
-            console.log('Real-time agent interaction:', data);
+            if (typeof Logger !== 'undefined') {
+                Logger.debug('Real-time agent interaction', { agent: data.agent_name });
+            }
         });
     }
 </script>

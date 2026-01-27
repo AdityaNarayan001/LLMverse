@@ -5,6 +5,9 @@ from typing import Dict, List
 from models import Agent, db
 from .llm_agent import LLMAgent
 from src.environment import EnvironmentManager
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class AgentManager:
     """Manages multiple LLM agents and their interactions"""
@@ -21,22 +24,20 @@ class AgentManager:
     
     def load_all_agents(self):
         """Load all agents from the database"""
-        print("[DEBUG] Loading all agents from database...")
+        logger.info("Loading all agents from database")
         agents_data = Agent.query.all()
-        print(f"[DEBUG] Found {len(agents_data)} agents in database")
+        logger.info(f"Found {len(agents_data)} agents in database")
         
         for agent_data in agents_data:
             try:
-                print(f"[DEBUG] Loading agent: {agent_data.name} (ID: {agent_data.id})")
+                logger.debug(f"Loading agent", extra={'context': {'agent_name': agent_data.name, 'agent_id': agent_data.id}})
                 agent = LLMAgent(agent_data.id, self.environment_manager)
                 self.agents[agent_data.id] = agent
-                print(f"[DEBUG] Successfully loaded agent: {agent_data.name}")
+                logger.info(f"Successfully loaded agent: {agent_data.name}")
             except Exception as e:
-                print(f"[ERROR] Failed to load agent {agent_data.id}: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"Failed to load agent {agent_data.id}: {e}", exc_info=True)
         
-        print(f"[DEBUG] Total agents loaded: {len(self.agents)}")
+        logger.info(f"Total agents loaded: {len(self.agents)}")
     
     def create_agent(self, name: str, personality: str, provider: str = 'ollama', 
                     model_name: str = None) -> LLMAgent:
@@ -89,18 +90,18 @@ class AgentManager:
     def get_active_agents(self) -> List[LLMAgent]:
         """Get all active agents"""
         active_agents = []
-        print(f"[DEBUG] Checking {len(self.agents)} agents for active status...")
+        logger.debug(f"Checking {len(self.agents)} agents for active status")
         
         for agent_id, agent in self.agents.items():
             try:
                 is_active = agent.is_active()
-                print(f"[DEBUG] Agent {agent.agent_data.name} (ID: {agent_id}) active: {is_active}")
+                logger.debug(f"Agent status check", extra={'context': {'agent': agent.agent_data.name, 'id': agent_id, 'active': is_active}})
                 if is_active:
                     active_agents.append(agent)
             except Exception as e:
-                print(f"[ERROR] Error checking if agent {agent_id} is active: {e}")
+                logger.error(f"Error checking if agent {agent_id} is active: {e}")
         
-        print(f"[DEBUG] Found {len(active_agents)} active agents")
+        logger.debug(f"Found {len(active_agents)} active agents")
         return active_agents
     
     def update_agent(self, agent_id: int, **kwargs) -> bool:
@@ -143,19 +144,18 @@ class AgentManager:
     
     def start_simulation(self):
         """Start autonomous simulation"""
-        print(f"[DEBUG] Starting simulation... Current running state: {self.simulation_running}")
+        logger.info(f"Starting simulation", extra={'context': {'current_state': self.simulation_running}})
         if self.simulation_running:
-            print("[DEBUG] Simulation already running, returning")
+            logger.warning("Simulation already running")
             return
         
-        print(f"[DEBUG] Number of agents loaded: {len(self.agents)}")
-        print(f"[DEBUG] Active agents: {len(self.get_active_agents())}")
+        logger.info(f"Simulation config", extra={'context': {'total_agents': len(self.agents), 'active_agents': len(self.get_active_agents())}})
         
         self.simulation_running = True
         self.simulation_thread = threading.Thread(target=self._simulation_loop)
         self.simulation_thread.daemon = True
         self.simulation_thread.start()
-        print("[DEBUG] Simulation thread started")
+        logger.info("Simulation thread started")
     
     def stop_simulation(self):
         """Stop autonomous simulation"""
@@ -165,7 +165,7 @@ class AgentManager:
     
     def _simulation_loop(self):
         """Main simulation loop for autonomous agent actions with round-robin scheduling"""
-        print("[DEBUG] Simulation loop started with round-robin scheduling")
+        logger.info("Simulation loop started with round-robin scheduling")
         loop_count = 0
         conversation_topics = ["politics", "education", "community", "leadership", "society", "learning"]
         current_topic_index = 0
@@ -176,15 +176,15 @@ class AgentManager:
         while self.simulation_running:
             try:
                 loop_count += 1
-                print(f"[DEBUG] Simulation loop iteration {loop_count}")
+                logger.debug(f"Simulation iteration {loop_count}")
                 
                 # Use application context for database operations
                 with app.app_context():
                     active_agents = self.get_active_agents()
-                    print(f"[DEBUG] Found {len(active_agents)} active agents")
+                    logger.debug(f"Active agents: {len(active_agents)}")
                     
                     if len(active_agents) < 2:
-                        print("[DEBUG] Need at least 2 agents for conversation, waiting...")
+                        logger.warning("Need at least 2 agents for conversation")
                         time.sleep(self.simulation_speed)
                         continue
                     
@@ -192,10 +192,10 @@ class AgentManager:
                     if self.current_agent_index >= len(active_agents):
                         self.current_agent_index = 0
                         current_topic_index = (current_topic_index + 1) % len(conversation_topics)
-                        print(f"[TOPIC] Switching to topic: {conversation_topics[current_topic_index]}")
+                        logger.info(f"Topic switch: {conversation_topics[current_topic_index]}")
                     
                     current_agent = active_agents[self.current_agent_index]
-                    print(f"[ROUND-ROBIN] Turn {loop_count}: {current_agent.agent_data.name}")
+                    logger.info(f"Turn {loop_count}", extra={'context': {'agent': current_agent.agent_data.name}})
                     
                     # Find a target agent (prefer someone who hasn't been the last speaker)
                     other_agents = [a for a in active_agents if a.agent_id != current_agent.agent_id]
@@ -215,8 +215,8 @@ class AgentManager:
                             current_agent, target_agent, current_topic
                         )
                         
-                        print(f"[CONVERSATION] {current_agent.agent_data.name} → {target_agent.agent_data.name}")
-                        print(f"[TOPIC] {current_topic}: {message[:60]}...")
+                        logger.info(f"Conversation", extra={'context': {'from': current_agent.agent_data.name, 'to': target_agent.agent_data.name, 'topic': current_topic}})
+                        logger.debug(f"Message preview: {message[:60]}...")
                         
                         # Send the message
                         current_agent.communicate_with_agent(target_agent.agent_id, message, self.simulation_speed)
@@ -235,7 +235,7 @@ class AgentManager:
                                 'memory_count': memory_status['total_count']
                             })
                         except Exception as ws_error:
-                            print(f"[WARNING] WebSocket emission failed: {ws_error}")
+                            logger.warning(f"WebSocket emission failed: {ws_error}")
                         
                         # Generate a response from the target agent (50% chance to avoid too much chatter)
                         if random.random() < 0.7:  # 70% chance to respond
@@ -243,7 +243,7 @@ class AgentManager:
                                 target_agent, current_agent, message, current_topic
                             )
                             if response:
-                                print(f"[RESPONSE] {target_agent.agent_data.name} responded: {response[:60]}...")
+                                logger.info(f"Response", extra={'context': {'from': target_agent.agent_data.name, 'preview': response[:50]}})
                                 
                                 # Emit the response
                                 try:
@@ -255,7 +255,7 @@ class AgentManager:
                                         'memory_count': target_agent.memory_manager.get_memory_summary()['total_count']
                                     })
                                 except Exception as ws_error:
-                                    print(f"[WARNING] WebSocket emission failed for response: {ws_error}")
+                                    logger.warning(f"WebSocket emission failed for response: {ws_error}")
                         
                         self.last_speaker = current_agent.agent_id
                     
@@ -263,16 +263,14 @@ class AgentManager:
                     self.current_agent_index = (self.current_agent_index + 1) % len(active_agents)
                 
                 # Wait before next round of actions
-                print(f"[DEBUG] Waiting {self.simulation_speed} seconds before next turn...")
+                logger.debug(f"Waiting {self.simulation_speed}s before next turn")
                 time.sleep(self.simulation_speed)
                 
             except Exception as e:
-                print(f"[ERROR] Error in simulation loop: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"Error in simulation loop: {e}", exc_info=True)
                 time.sleep(self.simulation_speed)
         
-        print("[DEBUG] Simulation loop ended")
+        logger.info("Simulation loop ended")
     
     def _get_agent_by_name(self, name: str) -> LLMAgent:
         """Get an agent by name"""
@@ -421,7 +419,7 @@ The conversation topic is {topic}. Respond naturally as {responder.agent_data.na
             return response
             
         except Exception as e:
-            print(f"[ERROR] Error generating response: {e}")
+            logger.error(f"Error generating response: {e}")
             return f"Thanks for sharing that, {sender.agent_data.name}!"
     
     def _generate_response_to_communication(self, responding_agent: LLMAgent, 
@@ -459,12 +457,12 @@ Please respond naturally to {original_agent.agent_data.name}."""
                     'memory_count': responding_agent.memory_manager.get_memory_summary()['total_count']
                 })
             except Exception as ws_error:
-                print(f"[WARNING] WebSocket emission failed for response: {ws_error}")
+                logger.warning(f"WebSocket emission failed for response: {ws_error}")
             
             return f"Responded to {original_agent.agent_data.name}: {response}"
             
         except Exception as e:
-            print(f"[ERROR] Error generating response communication: {e}")
+            logger.error(f"Error generating response communication: {e}")
             return None
     
     def set_simulation_speed(self, speed: float):
@@ -561,10 +559,10 @@ Please respond naturally to {original_agent.agent_data.name}."""
                 if not existing:
                     agent = self.create_agent(**agent_data)
                     created_agents.append(agent)
-                    print(f"Created sample agent: {agent_data['name']}")
+                    logger.info(f"Created sample agent: {agent_data['name']}")
                 else:
-                    print(f"Sample agent {agent_data['name']} already exists")
+                    logger.debug(f"Sample agent {agent_data['name']} already exists")
             except Exception as e:
-                print(f"Failed to create sample agent {agent_data['name']}: {e}")
+                logger.error(f"Failed to create sample agent {agent_data['name']}: {e}")
         
         return created_agents

@@ -6,12 +6,14 @@ from models import Agent, db
 from src.providers.factory import ProviderFactory
 from src.memory import MemoryManager
 from src.environment import EnvironmentManager
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class LLMAgent:
     """Represents an LLM agent with personality, memory, and behavior"""
     
     def __init__(self, agent_id: int, environment_manager: EnvironmentManager):
-        print(f"[DEBUG] Initializing LLMAgent with ID: {agent_id}")
         self.agent_id = agent_id
         self.environment_manager = environment_manager
         self.memory_manager = MemoryManager(agent_id)
@@ -20,16 +22,16 @@ class LLMAgent:
         
         try:
             self.load_agent_data()
-            print(f"[DEBUG] Agent data loaded for: {self.agent_data.name}")
+            logger.info(f"Agent loaded", extra={'context': {'agent': self.agent_data.name, 'id': agent_id}})
         except Exception as e:
-            print(f"[ERROR] Failed to load agent data: {e}")
+            logger.error(f"Failed to load agent data: {e}", exc_info=True)
             raise
         
         try:
             self.setup_provider()
-            print(f"[DEBUG] Provider setup for {self.agent_data.name}: {self.provider is not None}")
+            logger.debug(f"Provider setup", extra={'context': {'agent': self.agent_data.name, 'has_provider': self.provider is not None}})
         except Exception as e:
-            print(f"[ERROR] Failed to setup provider: {e}")
+            logger.error(f"Failed to setup provider: {e}", exc_info=True)
             raise
     
     def load_agent_data(self):
@@ -50,7 +52,7 @@ class LLMAgent:
                 **provider_config
             )
         except Exception as e:
-            print(f"Failed to setup provider for agent {self.agent_id}: {e}")
+            logger.error(f"Failed to setup provider for agent {self.agent_id}: {e}")
             self.provider = None
     
     def _get_provider_config(self) -> Dict[str, Any]:
@@ -73,41 +75,36 @@ class LLMAgent:
     
     def is_active(self) -> bool:
         """Check if the agent is active and can operate"""
-        print(f"[DEBUG] Checking if agent {self.agent_data.name if self.agent_data else 'Unknown'} is active...")
+        agent_name = self.agent_data.name if self.agent_data else 'Unknown'
         
         if not self.agent_data:
-            print(f"[DEBUG] Agent data is None")
+            logger.debug("Agent data is None")
             return False
         
         if not self.agent_data.is_active:
-            print(f"[DEBUG] Agent {self.agent_data.name} is not active in database")
+            logger.debug(f"Agent not active in DB", extra={'context': {'agent': agent_name}})
             return False
         
         if not self.provider:
-            print(f"[DEBUG] Agent {self.agent_data.name} has no provider")
+            logger.debug(f"Agent has no provider", extra={'context': {'agent': agent_name}})
             return False
         
         try:
             provider_available = self.provider.is_available()
-            print(f"[DEBUG] Provider availability for {self.agent_data.name}: {provider_available}")
-            
-            result = (self.agent_data and 
-                     self.agent_data.is_active and 
-                     self.provider and 
-                     provider_available)
-            
-            print(f"[DEBUG] Final active status for {self.agent_data.name}: {result}")
+            result = provider_available
+            logger.debug(f"Agent active check", extra={'context': {'agent': agent_name, 'provider_ok': provider_available, 'active': result}})
             return result
         except Exception as e:
-            print(f"[ERROR] Error checking provider availability: {e}")
+            logger.error(f"Error checking provider availability: {e}")
             return False
     
     def generate_response(self, prompt: str, context: str = "") -> str:
         """Generate a response using the agent's LLM provider"""
-        print(f"[DEBUG] {self.agent_data.name} generating response to: {prompt[:50]}...")
+        agent_logger = logger.with_context(agent=self.agent_data.name)
+        agent_logger.debug(f"Generating response to: {prompt[:50]}...")
         
         if not self.is_active():
-            print(f"[DEBUG] {self.agent_data.name} is not active, cannot generate response")
+            agent_logger.warning("Agent not active, cannot generate response")
             return "Agent is not available"
         
         # Check if this is a relevant conversational prompt for an AI agent
@@ -116,15 +113,14 @@ class LLMAgent:
         
         # Build the full prompt with personality and context
         full_prompt = self._build_prompt(prompt, context)
-        print(f"[DEBUG] {self.agent_data.name} built prompt, length: {len(full_prompt)}")
+        agent_logger.debug(f"Prompt built, length: {len(full_prompt)}")
         
         try:
-            print(f"[DEBUG] {self.agent_data.name} calling provider.generate_response...")
             response = self.provider.generate_response(
                 full_prompt, 
                 model=self.agent_data.model_name
             )
-            print(f"[DEBUG] {self.agent_data.name} got response: {response[:100]}...")
+            agent_logger.debug(f"Got response: {response[:80]}...")
             
             # Clean up generic responses that small models tend to give
             if (response.startswith("Okay, I understand") or 
@@ -132,7 +128,7 @@ class LLMAgent:
                 "I will respond" in response or
                 "I will follow" in response):
                 
-                print(f"[DEBUG] {self.agent_data.name} gave generic response, generating fallback...")
+                agent_logger.debug("Generic response detected, using fallback")
                 # Generate a personality-based fallback response
                 if "gossip" in self.agent_data.personality.lower() or "social" in self.agent_data.personality.lower():
                     responses = [
@@ -172,9 +168,7 @@ class LLMAgent:
             
             return response
         except Exception as e:
-            print(f"[ERROR] Error generating response for {self.agent_data.name}: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Error generating response for {self.agent_data.name}: {e}", exc_info=True)
             return f"Error generating response: {str(e)}"
     
     def _is_irrelevant_prompt(self, prompt: str) -> bool:
@@ -339,7 +333,7 @@ Respond as {self.agent_data.name} in 1-2 sentences. Be natural and conversationa
             importance_score=importance
         )
         
-        print(f"[MEMORY] {self.agent_data.name} stored communication with {target_name} (importance: {importance})")
+        logger.debug(f"Memory stored", extra={'context': {'agent': self.agent_data.name, 'target': target_name, 'importance': importance}})
         
         # Just return the message - no need for additional processing
         return message
@@ -525,10 +519,11 @@ Respond as {self.agent_data.name} in 1-2 sentences. Be natural and conversationa
     
     def autonomous_action(self, simulation_speed: float = 5.0) -> Optional[str]:
         """Perform an autonomous action based on current state and personality - simplified for round-robin"""
-        print(f"[DEBUG] {self.agent_data.name} attempting autonomous action (round-robin mode)...")
+        agent_logger = logger.with_context(agent=self.agent_data.name)
+        agent_logger.debug("Attempting autonomous action (round-robin mode)")
         
         if not self.is_active():
-            print(f"[DEBUG] {self.agent_data.name} is not active, skipping autonomous action")
+            agent_logger.debug("Agent not active, skipping autonomous action")
             return None
         
         try:
@@ -564,13 +559,11 @@ Respond as {self.agent_data.name} in 1-2 sentences. Be natural and conversationa
             
             # Save observation action
             self.take_action("observe", f"Observed: {observation}", metadata={'observation': observation}, simulation_speed=simulation_speed)
-            print(f"[OBSERVE] Agent {self.agent_data.name}: {observation[:100]}...")
+            logger.info(f"Observation", extra={'context': {'agent': self.agent_data.name, 'preview': observation[:80]}})
             return f"Observed: {observation[:100]}..."
             
         except Exception as e:
-            print(f"[ERROR] Error in autonomous action for {self.agent_data.name}: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Error in autonomous action for {self.agent_data.name}: {e}", exc_info=True)
             return f"Error: {str(e)}"
     
     def get_status(self) -> Dict[str, Any]:

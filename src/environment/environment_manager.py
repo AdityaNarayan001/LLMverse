@@ -2,6 +2,9 @@ import json
 from typing import Dict, Any, List
 from datetime import datetime
 from models import Environment, Action, Agent, db
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class EnvironmentManager:
     """Manages the shared environment where agents interact"""
@@ -159,7 +162,7 @@ class EnvironmentManager:
         if last_action:
             time_since_last = (datetime.utcnow() - last_action.created_at).total_seconds()
             if time_since_last < dynamic_cooldown:
-                print(f"[COOLDOWN] Agent {agent_id} must wait {dynamic_cooldown - time_since_last:.1f}s more")
+                logger.debug(f"Agent cooldown", extra={'context': {'agent_id': agent_id, 'wait': f'{dynamic_cooldown - time_since_last:.1f}s'}})
                 return False
         
         return True

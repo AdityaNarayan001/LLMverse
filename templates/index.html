@@ -281,11 +281,15 @@
                     if (data.error) {
                         showToast('Error updating speed: ' + data.error, 'error');
                     } else {
-                        console.log('Speed updated to:', data.speed);
+                        if (typeof Logger !== 'undefined') {
+                            Logger.info('Speed updated', { speed: data.speed });
+                        }
                     }
                 })
                 .catch(error => {
-                    console.error('Error updating speed:', error);
+                    if (typeof Logger !== 'undefined') {
+                        Logger.error('Error updating speed', { error: error.message });
+                    }
                 });
         });
 

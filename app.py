@@ -5,8 +5,8 @@ from models import db, Agent, Environment, Action, Memory
 from src.agents import AgentManager
 from src.environment import EnvironmentManager
 from src.providers.factory import ProviderFactory
+from src.utils.logger import get_logger, get_websocket_handler, WebSocketHandler
 import json
-import logging
 import os
 from datetime import datetime, timedelta
 import threading
@@ -16,48 +16,19 @@ from collections import deque
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# Configure logging
+# Initialize logger
+logger = get_logger(__name__)
+
+# Ensure log directory exists
 if not os.path.exists('logs'):
     os.makedirs('logs')
-
-# Set up custom logging handler to capture system logs
-class MemoryLogHandler(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.logs = deque(maxlen=1000)  # Keep last 1000 log entries
-    
-    def emit(self, record):
-        log_entry = {
-            'timestamp': datetime.fromtimestamp(record.created).isoformat(),
-            'level': record.levelname,
-            'message': record.getMessage(),
-            'module': record.module,
-            'line': record.lineno
-        }
-        self.logs.append(log_entry)
-        # Emit to connected WebSocket clients
-        if 'socketio' in globals():
-            socketio.emit('new_log', log_entry)
-
-# Global log handler instance
-log_handler = MemoryLogHandler()
-log_handler.setLevel(logging.INFO)
-
-# Configure root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/llmverse.log'),
-        log_handler
-    ]
-)
-
-logger = logging.getLogger(__name__)
 
 # Initialize extensions
 db.init_app(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Connect WebSocket handler to emit logs in real-time
+WebSocketHandler.set_socketio(socketio)
 
 # Initialize managers
 environment_manager = EnvironmentManager()
@@ -65,26 +36,26 @@ agent_manager = AgentManager(environment_manager)
 
 def initialize_app():
     """Initialize database tables and load initial data"""
-    print("[DEBUG] Starting app initialization...")
+    logger.info("Starting app initialization")
     with app.app_context():
-        print("[DEBUG] Creating database tables...")
+        logger.info("Creating database tables")
         db.create_all()
         
-        print("[DEBUG] Loading existing agents...")
+        logger.info("Loading existing agents")
         # Load existing agents
         agent_manager.load_all_agents()
         
         # Create sample agents if none exist
         all_agents = agent_manager.get_all_agents()
-        print(f"[DEBUG] Found {len(all_agents)} agents after loading")
+        logger.info(f"Found {len(all_agents)} agents after loading")
         
         if not all_agents:
-            print("[DEBUG] No agents found, creating sample agents...")
+            logger.info("No agents found, creating sample agents")
             agent_manager.create_sample_agents_ollama()
         else:
-            print("[DEBUG] Agents already exist, skipping sample creation")
+            logger.info("Agents already exist, skipping sample creation")
     
-    print("[DEBUG] App initialization complete")
+    logger.info("App initialization complete")
 
 # Remove the old create_sample_agents function as it's now in AgentManager
 
@@ -280,20 +251,18 @@ def get_agent_memories(agent_id):
 @app.route('/api/simulation/start', methods=['POST'])
 def start_simulation():
     """Start the autonomous simulation"""
-    print("[DEBUG] API: Starting simulation requested")
+    logger.info("API: Starting simulation requested")
     try:
         agent_manager.start_simulation()
         status = agent_manager.get_simulation_status()
-        print(f"[DEBUG] API: Simulation status after start: {status}")
+        logger.info(f"Simulation started", extra={'context': {'running': status.get('running'), 'agents': status.get('active_agents')}})
         
         # Emit update to connected clients
         socketio.emit('simulation_started', status)
         
         return jsonify(status)
     except Exception as e:
-        print(f"[ERROR] API: Error starting simulation: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error starting simulation: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 400
 
 @app.route('/api/simulation/stop', methods=['POST'])
@@ -425,6 +394,14 @@ def get_interactions():
     return jsonify(interactions)
 
 
+@app.route('/api/logs', methods=['GET'])
+def get_logs():
+    """Get recent system logs"""
+    limit = request.args.get('limit', 100, type=int)
+    ws_handler = get_websocket_handler()
+    logs = ws_handler.get_recent_logs(limit)
+    return jsonify(logs)
+
 
 @app.route('/api/broadcast', methods=['POST'])
 def broadcast_message():
@@ -458,7 +435,7 @@ def handle_status_request():
     emit('status_update', status)
 
 if __name__ == '__main__':
-    print("[DEBUG] Starting application...")
+    logger.info("Starting LLMverse application")
     initialize_app()
-    print("[DEBUG] Starting SocketIO server...")
+    logger.info("Starting SocketIO server on http://0.0.0.0:5000")
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

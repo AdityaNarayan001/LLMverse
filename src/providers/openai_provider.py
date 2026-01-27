@@ -2,6 +2,9 @@ import openai
 from openai import AzureOpenAI
 from typing import List
 from . import LLMProvider
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class OpenAIProvider(LLMProvider):
     """OpenAI/Azure OpenAI GPT provider implementation"""
@@ -19,11 +22,11 @@ class OpenAIProvider(LLMProvider):
                 api_version=azure_api_version,
                 azure_endpoint=azure_endpoint
             )
-            print(f"[OpenAI Provider] Using Azure OpenAI at {azure_endpoint}")
+            logger.info(f"Azure OpenAI initialized", extra={'context': {'endpoint': azure_endpoint}})
         elif api_key and not self.is_azure:
             # Standard OpenAI configuration
             self.client = openai.OpenAI(api_key=api_key)
-            print("[OpenAI Provider] Using standard OpenAI API")
+            logger.info("Standard OpenAI API initialized")
         else:
             self.client = None
     

@@ -2,6 +2,72 @@
 let socket;
 let connectionStatus = 'disconnected';
 
+// ===========================================
+// Frontend Logging Service
+// ===========================================
+const Logger = {
+    logs: [],
+    maxLogs: 500,
+    listeners: [],
+    
+    levels: {
+        DEBUG: { value: 0, icon: '🔍', color: '#6c757d' },
+        INFO: { value: 1, icon: '📋', color: '#0d6efd' },
+        WARNING: { value: 2, icon: '⚠️', color: '#ffc107' },
+        ERROR: { value: 3, icon: '❌', color: '#dc3545' },
+        CRITICAL: { value: 4, icon: '🚨', color: '#6f42c1' }
+    },
+    
+    currentLevel: 'INFO',
+    
+    _log(level, message, context = {}) {
+        const entry = {
+            timestamp: new Date().toISOString(),
+            level: level,
+            message: message,
+            context: context,
+            module: 'frontend'
+        };
+        
+        this.logs.push(entry);
+        if (this.logs.length > this.maxLogs) {
+            this.logs.shift();
+        }
+        
+        // Console output with styling
+        const levelInfo = this.levels[level];
+        const contextStr = Object.keys(context).length > 0 
+            ? ' | ' + Object.entries(context).map(([k, v]) => `${k}=${v}`).join(' ')
+            : '';
+        
+        const style = `color: ${levelInfo.color}; font-weight: bold;`;
+        console.log(`%c${levelInfo.icon} [${level}] ${message}${contextStr}`, style);
+        
+        // Notify listeners
+        this.listeners.forEach(listener => listener(entry));
+    },
+    
+    debug(message, context = {}) { this._log('DEBUG', message, context); },
+    info(message, context = {}) { this._log('INFO', message, context); },
+    warning(message, context = {}) { this._log('WARNING', message, context); },
+    error(message, context = {}) { this._log('ERROR', message, context); },
+    
+    onLog(callback) {
+        this.listeners.push(callback);
+    },
+    
+    getLogs(count = 100, minLevel = 'DEBUG') {
+        const minValue = this.levels[minLevel].value;
+        return this.logs
+            .filter(log => this.levels[log.level].value >= minValue)
+            .slice(-count);
+    }
+};
+
+// ===========================================
+// Socket Connection
+// ===========================================
+
 // Initialize socket connection
 document.addEventListener('DOMContentLoaded', function () {
     initializeSocket();
@@ -14,45 +80,52 @@ function initializeSocket() {
     socket.on('connect', function () {
         connectionStatus = 'connected';
         updateConnectionStatus();
-        console.log('Connected to LLMverse server');
+        Logger.info('Connected to LLMverse server');
     });
 
     socket.on('disconnect', function () {
         connectionStatus = 'disconnected';
         updateConnectionStatus();
-        console.log('Disconnected from LLMverse server');
+        Logger.warning('Disconnected from LLMverse server');
     });
 
     socket.on('agent_created', function (data) {
+        Logger.info('Agent created', { name: data.name });
         showToast(`Agent "${data.name}" created successfully`, 'success');
     });
 
     socket.on('agent_updated', function (data) {
+        Logger.info('Agent updated', { name: data.name });
         showToast(`Agent "${data.name}" updated successfully`, 'success');
     });
 
     socket.on('agent_deleted', function (data) {
+        Logger.info('Agent deleted');
         showToast('Agent deleted successfully', 'success');
     });
 
     socket.on('simulation_started', function (data) {
+        Logger.info('Simulation started', { agents: data.active_agents });
         showToast('Simulation started', 'success');
     });
 
     socket.on('simulation_stopped', function (data) {
+        Logger.info('Simulation stopped');
         showToast('Simulation stopped', 'info');
     });
 
     socket.on('environment_reset', function (data) {
+        Logger.info('Environment reset');
         showToast('Environment reset successfully', 'success');
     });
 
     socket.on('environment_switched', function (data) {
+        Logger.info('Environment switched', { name: data.environment.name });
         showToast(`Switched to environment: ${data.environment.name}`, 'info');
     });
 
     socket.on('agent_interaction', function (data) {
-        console.log('Agent interaction:', data);
+        Logger.debug('Agent interaction', { agent: data.agent_name, action: data.action });
         // Handle real-time agent interactions
         showToast(`${data.agent_name}: ${data.action}`, 'info');
 
@@ -63,7 +136,7 @@ function initializeSocket() {
     });
 
     socket.on('agent_action', function (data) {
-        console.log('Agent action:', data);
+        Logger.debug('Agent action', { agent: data.agent_name });
         // Handle real-time agent actions
         showToast(`${data.agent_name} performed an action`, 'info');
 
@@ -74,7 +147,20 @@ function initializeSocket() {
     });
 
     socket.on('broadcast_sent', function (data) {
+        Logger.info('Broadcast sent', { message: data.message?.substring(0, 50) });
         showToast('Broadcast message sent to all agents', 'success');
+    });
+    
+    // Listen for backend logs
+    socket.on('new_log', function (data) {
+        Logger.logs.push({
+            ...data,
+            module: data.module || 'backend'
+        });
+        if (Logger.logs.length > Logger.maxLogs) {
+            Logger.logs.shift();
+        }
+        Logger.listeners.forEach(listener => listener(data));
     });
 }
 
