@@ -42,6 +42,7 @@ class AgentManager:
     def create_agent(self, name: str, personality: str, provider: str = 'ollama', 
                     model_name: str = None) -> LLMAgent:
         """Create a new agent with default provider being Ollama"""
+        from models import CharacterState
         
         # Set default model based on provider
         if model_name is None:
@@ -63,6 +64,21 @@ class AgentManager:
         )
         
         db.session.add(agent_data)
+        db.session.flush()  # Get the ID
+        
+        # Create CharacterState for the new agent
+        state = CharacterState(
+            character_id=agent_data.id,
+            trait_curiosity=50,
+            trait_empathy=50,
+            trait_assertiveness=50,
+            trait_creativity=50,
+            trait_trust=50,
+            trait_optimism=50,
+            emotional_state='neutral',
+            energy_level=100
+        )
+        db.session.add(state)
         db.session.commit()
         
         # Create and store the agent instance

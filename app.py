@@ -35,12 +35,39 @@ WebSocketHandler.set_socketio(socketio)
 environment_manager = EnvironmentManager()
 agent_manager = AgentManager(environment_manager)
 
+def fix_missing_character_states():
+    """Create CharacterState records for any characters missing them"""
+    characters = Character.query.all()
+    fixed = 0
+    for char in characters:
+        if not char.state:
+            state = CharacterState(
+                character_id=char.id,
+                trait_curiosity=50,
+                trait_empathy=50,
+                trait_assertiveness=50,
+                trait_creativity=50,
+                trait_trust=50,
+                trait_optimism=50,
+                emotional_state='neutral',
+                energy_level=100
+            )
+            db.session.add(state)
+            fixed += 1
+            logger.info(f"Created missing CharacterState for: {char.name}")
+    if fixed > 0:
+        db.session.commit()
+        logger.info(f"Fixed {fixed} characters with missing states")
+
 def initialize_app():
     """Initialize database tables and load initial data"""
     logger.info("Starting app initialization")
     with app.app_context():
         logger.info("Creating database tables")
         db.create_all()
+        
+        # Fix any characters without states
+        fix_missing_character_states()
         
         logger.info("Loading existing agents")
         # Load existing agents
@@ -419,8 +446,16 @@ def create_character_page():
     characters = Character.query.all()
     providers = [{'name': p} for p in ProviderFactory.get_available_providers()]
     
-    # Get available models for each provider
+    # Get available models for each provider with fallbacks
     provider_models = {}
+    
+    # Default models for each provider (used as fallback)
+    default_models = {
+        'ollama': ['gemma3:27b', 'llama2', 'mistral', 'codellama'],
+        'openai': ['gpt-4o', 'gpt-4', 'gpt-3.5-turbo', 'gpt-4-turbo-preview'],
+        'gemini': ['gemini-2.5-flash-lite', 'gemini-pro', 'gemini-1.5-pro']
+    }
+    
     for p in ProviderFactory.get_available_providers():
         try:
             provider = ProviderFactory.create_provider(p)
@@ -429,9 +464,11 @@ def create_character_page():
                 # Normalize model format
                 provider_models[p] = [{'name': m if isinstance(m, str) else m.get('name', str(m))} for m in models]
             else:
-                provider_models[p] = []
+                # Use default models as fallback
+                provider_models[p] = [{'name': m} for m in default_models.get(p, [])]
         except:
-            provider_models[p] = []
+            # Use default models as fallback
+            provider_models[p] = [{'name': m} for m in default_models.get(p, [])]
     
     return render_template('v2/create.html',
                          characters=characters,
