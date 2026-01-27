@@ -13,20 +13,33 @@ class ConfigLoader:
         self.load_yaml_config()
     
     def load_yaml_config(self):
-        """Load configuration from YAML files"""
-        # Try to load local config first, then fall back to default config
-        config_files = ['config.local.yaml', 'config.yaml']
+        """Load configuration from YAML files - merges local config on top of default"""
+        # First load default config
+        if os.path.exists('config.yaml'):
+            try:
+                with open('config.yaml', 'r') as f:
+                    self.config_data = yaml.safe_load(f) or {}
+                print("Loaded base configuration from config.yaml")
+            except Exception as e:
+                print(f"Error loading config.yaml: {e}")
         
-        for config_file in config_files:
-            if os.path.exists(config_file):
-                try:
-                    with open(config_file, 'r') as f:
-                        self.config_data = yaml.safe_load(f) or {}
-                    print(f"Loaded configuration from {config_file}")
-                    break
-                except Exception as e:
-                    print(f"Error loading {config_file}: {e}")
-                    continue
+        # Then merge local config on top (overrides defaults)
+        if os.path.exists('config.local.yaml'):
+            try:
+                with open('config.local.yaml', 'r') as f:
+                    local_config = yaml.safe_load(f) or {}
+                self._deep_merge(self.config_data, local_config)
+                print("Merged local configuration from config.local.yaml")
+            except Exception as e:
+                print(f"Error loading config.local.yaml: {e}")
+    
+    def _deep_merge(self, base: dict, override: dict):
+        """Deep merge override dict into base dict"""
+        for key, value in override.items():
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                self._deep_merge(base[key], value)
+            else:
+                base[key] = value
     
     def get(self, key_path: str, default=None):
         """Get configuration value using dot notation (e.g., 'flask.secret_key')"""
@@ -63,21 +76,26 @@ class Config:
     SQLALCHEMY_DATABASE_URI = config_loader.get('database.url', 'sqlite:///llmverse.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
-    # LLM Provider Settings
+    # LLM Provider Settings - OpenAI / Azure OpenAI
     OPENAI_API_KEY = config_loader.get('providers.openai.api_key')
     OPENAI_DEFAULT_MODEL = config_loader.get('providers.openai.default_model', 'gpt-3.5-turbo')
-    OPENAI_MAX_TOKENS = int(config_loader.get('providers.openai.max_tokens', 500))
-    OPENAI_TEMPERATURE = float(config_loader.get('providers.openai.temperature', 0.7))
+    OPENAI_MAX_TOKENS = int(config_loader.get('providers.openai.max_tokens', 500) or 500)
+    OPENAI_TEMPERATURE = float(config_loader.get('providers.openai.temperature', 0.7) or 0.7)
+    
+    # Azure OpenAI specific settings
+    AZURE_OPENAI_ENDPOINT = config_loader.get('providers.openai.azure_endpoint')
+    AZURE_OPENAI_DEPLOYMENT = config_loader.get('providers.openai.azure_deployment')
+    AZURE_OPENAI_API_VERSION = config_loader.get('providers.openai.azure_api_version', '2024-02-15-preview')
     
     GEMINI_API_KEY = config_loader.get('providers.gemini.api_key')
     GEMINI_DEFAULT_MODEL = config_loader.get('providers.gemini.default_model', 'gemini-pro')
-    GEMINI_MAX_TOKENS = int(config_loader.get('providers.gemini.max_tokens', 500))
-    GEMINI_TEMPERATURE = float(config_loader.get('providers.gemini.temperature', 0.7))
+    GEMINI_MAX_TOKENS = int(config_loader.get('providers.gemini.max_tokens', 500) or 500)
+    GEMINI_TEMPERATURE = float(config_loader.get('providers.gemini.temperature', 0.7) or 0.7)
     
     OLLAMA_BASE_URL = config_loader.get('providers.ollama.base_url', 'http://localhost:11434')
-    OLLAMA_DEFAULT_MODEL = config_loader.get('providers.ollama.default_model', 'llama2')
-    OLLAMA_MAX_TOKENS = int(config_loader.get('providers.ollama.max_tokens', 500))
-    OLLAMA_TEMPERATURE = float(config_loader.get('providers.ollama.temperature', 0.7))
+    OLLAMA_DEFAULT_MODEL = config_loader.get('providers.ollama.default_model', 'gemma3:270m')
+    OLLAMA_MAX_TOKENS = int(config_loader.get('providers.ollama.max_tokens', 1024) or 1024)
+    OLLAMA_TEMPERATURE = float(config_loader.get('providers.ollama.temperature', 0.7) or 0.7)
     
     # Agent Configuration
     MAX_AGENTS = int(config_loader.get('agents.max_agents', 10))
@@ -127,6 +145,9 @@ class Config:
         if provider_name == 'openai':
             return {
                 'api_key': cls.OPENAI_API_KEY,
+                'azure_endpoint': cls.AZURE_OPENAI_ENDPOINT,
+                'azure_deployment': cls.AZURE_OPENAI_DEPLOYMENT,
+                'azure_api_version': cls.AZURE_OPENAI_API_VERSION,
                 'default_model': cls.OPENAI_DEFAULT_MODEL,
                 'max_tokens': cls.OPENAI_MAX_TOKENS,
                 'temperature': cls.OPENAI_TEMPERATURE

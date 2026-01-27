@@ -37,15 +37,15 @@ def initialize_database():
         return False
 
 def start_application():
-    """Start the Flask application"""
+    """Start the Flask application with SocketIO support"""
     try:
         print("\n🚀 Starting LLMverse with Ollama...")
         print("📝 Configuration: Using Ollama with gemma3:270m as default")
         print("🌐 Web interface will be available at: http://localhost:5000")
         print("\n" + "="*50)
         
-        from app import app
-        app.run(debug=True, host='0.0.0.0', port=5000)
+        from app import app, socketio
+        socketio.run(app, debug=True, host='0.0.0.0', port=5000)
         
     except KeyboardInterrupt:
         print("\n👋 LLMverse stopped by user")

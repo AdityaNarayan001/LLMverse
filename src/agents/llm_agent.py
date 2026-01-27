@@ -58,7 +58,12 @@ class LLMAgent:
         from config import Config
         
         if self.agent_data.provider == 'openai':
-            return {'api_key': Config.OPENAI_API_KEY}
+            return {
+                'api_key': Config.OPENAI_API_KEY,
+                'azure_endpoint': Config.AZURE_OPENAI_ENDPOINT,
+                'azure_deployment': Config.AZURE_OPENAI_DEPLOYMENT,
+                'azure_api_version': Config.AZURE_OPENAI_API_VERSION
+            }
         elif self.agent_data.provider == 'gemini':
             return {'api_key': Config.GEMINI_API_KEY}
         elif self.agent_data.provider == 'ollama':

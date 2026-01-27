@@ -10,7 +10,13 @@ class ProviderFactory:
     def create_provider(provider_type: str, **kwargs) -> LLMProvider:
         """Create a provider instance based on type"""
         if provider_type.lower() == 'openai':
-            return OpenAIProvider(api_key=kwargs.get('api_key'))
+            # Support both standard OpenAI and Azure OpenAI
+            return OpenAIProvider(
+                api_key=kwargs.get('api_key'),
+                azure_endpoint=kwargs.get('azure_endpoint'),
+                azure_deployment=kwargs.get('azure_deployment'),
+                azure_api_version=kwargs.get('azure_api_version', '2024-02-15-preview')
+            )
         elif provider_type.lower() == 'gemini':
             return GeminiProvider(api_key=kwargs.get('api_key'))
         elif provider_type.lower() == 'ollama':
