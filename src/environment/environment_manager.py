@@ -135,7 +135,7 @@ class EnvironmentManager:
         
         return json.loads(env.rules) if env.rules else {}
     
-    def can_agent_act(self, agent_id: int, simulation_speed: float = 5.0) -> bool:
+    def can_agent_act(self, character_id: int, simulation_speed: float = 5.0) -> bool:
         """Check if an agent can perform an action based on environment rules"""
         self._ensure_initialized()
         rules = self.get_environment_rules()
@@ -144,7 +144,7 @@ class EnvironmentManager:
         max_daily_actions = rules.get('max_daily_actions', 100)
         if max_daily_actions > 0:
             today_actions = Action.query.filter(
-                Action.agent_id == agent_id,
+                Action.character_id == character_id,
                 Action.created_at >= datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
             ).count()
             
@@ -157,25 +157,25 @@ class EnvironmentManager:
         # Scale cooldown with simulation speed, but minimum 0.5 seconds
         dynamic_cooldown = max(0.5, min(base_cooldown, simulation_speed * 0.8))
         
-        last_action = Action.query.filter_by(agent_id=agent_id).order_by(Action.created_at.desc()).first()
+        last_action = Action.query.filter_by(character_id=character_id).order_by(Action.created_at.desc()).first()
         
         if last_action:
             time_since_last = (datetime.utcnow() - last_action.created_at).total_seconds()
             if time_since_last < dynamic_cooldown:
-                logger.debug(f"Agent cooldown", extra={'context': {'agent_id': agent_id, 'wait': f'{dynamic_cooldown - time_since_last:.1f}s'}})
+                logger.debug(f"Agent cooldown", extra={'context': {'character_id': character_id, 'wait': f'{dynamic_cooldown - time_since_last:.1f}s'}})
                 return False
         
         return True
     
-    def record_action(self, agent_id: int, action_type: str, description: str, 
-                     target_agent_id: int = None, metadata: Dict[str, Any] = None) -> Action:
+    def record_action(self, character_id: int, action_type: str, description: str, 
+                     target_character_id: int = None, metadata: Dict[str, Any] = None) -> Action:
         """Record an action performed by an agent"""
         self._ensure_initialized()
         action = Action(
-            agent_id=agent_id,
+            character_id=character_id,
             action_type=action_type,
             description=description,
-            target_agent_id=target_agent_id,
+            target_character_id=target_character_id,
             action_metadata=json.dumps(metadata) if metadata else None
         )
         
@@ -211,11 +211,11 @@ class EnvironmentManager:
             return
         
         # Update relationships using agent names instead of IDs
-        if action.target_agent_id:
+        if action.target_character_id:
             # Get agent names
             from models import Agent
-            sender = Agent.query.get(action.agent_id)
-            target = Agent.query.get(action.target_agent_id)
+            sender = Agent.query.get(action.character_id)
+            target = Agent.query.get(action.target_character_id)
             
             if sender and target:
                 relationships = state.get('relationships', {})
@@ -235,8 +235,8 @@ class EnvironmentManager:
         
         # Get agent name for better readability
         from models import Agent
-        founder = Agent.query.get(action.agent_id)
-        founder_name = founder.name if founder else f"Agent {action.agent_id}"
+        founder = Agent.query.get(action.character_id)
+        founder_name = founder.name if founder else f"Agent {action.character_id}"
         
         societies = state.get('societies', [])
         metadata = json.loads(action.action_metadata) if action.action_metadata else {}
@@ -260,8 +260,8 @@ class EnvironmentManager:
         
         # Get agent name for better readability
         from models import Agent
-        leader = Agent.query.get(action.agent_id)
-        leader_name = leader.name if leader else f"Agent {action.agent_id}"
+        leader = Agent.query.get(action.character_id)
+        leader_name = leader.name if leader else f"Agent {action.character_id}"
         
         governments = state.get('governments', [])
         metadata = json.loads(action.action_metadata) if action.action_metadata else {}
@@ -283,8 +283,8 @@ class EnvironmentManager:
         """Process influence changes"""
         # Get agent name for better readability
         from models import Agent
-        agent = Agent.query.get(action.agent_id)
-        agent_name = agent.name if agent else f"Agent {action.agent_id}"
+        agent = Agent.query.get(action.character_id)
+        agent_name = agent.name if agent else f"Agent {action.character_id}"
         
         global_influence = state.get('global_influence', {})
         

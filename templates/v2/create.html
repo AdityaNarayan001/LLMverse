@@ -1,0 +1,549 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Create Character - LLMverse{% endblock %}
+
+{% block content %}
+<div class="create-container">
+    <div class="create-header">
+        <a href="{{ url_for('welcome') }}" class="back-link">
+            <i class="fas fa-arrow-left"></i>
+            Back
+        </a>
+        <h1 class="page-title">Create Character</h1>
+        <div class="char-count">{{ characters|length }} / 2 minimum</div>
+    </div>
+    
+    <form id="character-form" class="create-form">
+        <!-- Identity Section -->
+        <div class="form-section">
+            <h3 class="section-title">Identity</h3>
+            
+            <div class="form-row">
+                <div class="form-group avatar-group">
+                    <label class="form-label">Avatar</label>
+                    <div class="avatar-picker">
+                        <button type="button" class="avatar-option selected" data-avatar="🧑">🧑</button>
+                        <button type="button" class="avatar-option" data-avatar="👩">👩</button>
+                        <button type="button" class="avatar-option" data-avatar="👨">👨</button>
+                        <button type="button" class="avatar-option" data-avatar="🧓">🧓</button>
+                        <button type="button" class="avatar-option" data-avatar="👶">👶</button>
+                        <button type="button" class="avatar-option" data-avatar="🤖">🤖</button>
+                        <button type="button" class="avatar-option" data-avatar="👽">👽</button>
+                        <button type="button" class="avatar-option" data-avatar="🧙">🧙</button>
+                        <button type="button" class="avatar-option" data-avatar="🧛">🧛</button>
+                        <button type="button" class="avatar-option" data-avatar="🧜">🧜</button>
+                        <button type="button" class="avatar-option" data-avatar="🦊">🦊</button>
+                        <button type="button" class="avatar-option" data-avatar="🐱">🐱</button>
+                    </div>
+                    <input type="hidden" name="avatar" id="avatar-input" value="🧑">
+                </div>
+                
+                <div class="form-group name-group">
+                    <label class="form-label" for="name">Name</label>
+                    <input type="text" id="name" name="name" class="form-input" 
+                           placeholder="Enter character name" required maxlength="50">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Personality Section -->
+        <div class="form-section">
+            <h3 class="section-title">Personality</h3>
+            
+            <div class="form-group">
+                <label class="form-label" for="personality">Core Personality</label>
+                <textarea id="personality" name="core_personality" class="form-textarea" rows="4"
+                          placeholder="Describe this character's personality, values, and how they interact with others..."
+                          required></textarea>
+                <div class="form-hint">This defines the character's base behavior and will persist through evolution.</div>
+            </div>
+            
+            <div class="traits-grid">
+                <div class="trait-slider">
+                    <div class="trait-header">
+                        <span class="trait-name">Curiosity</span>
+                        <span class="trait-value" id="curiosity-value">50</span>
+                    </div>
+                    <input type="range" name="curiosity" id="curiosity" min="0" max="100" value="50" class="slider">
+                </div>
+                
+                <div class="trait-slider">
+                    <div class="trait-header">
+                        <span class="trait-name">Empathy</span>
+                        <span class="trait-value" id="empathy-value">50</span>
+                    </div>
+                    <input type="range" name="empathy" id="empathy" min="0" max="100" value="50" class="slider">
+                </div>
+                
+                <div class="trait-slider">
+                    <div class="trait-header">
+                        <span class="trait-name">Assertiveness</span>
+                        <span class="trait-value" id="assertiveness-value">50</span>
+                    </div>
+                    <input type="range" name="assertiveness" id="assertiveness" min="0" max="100" value="50" class="slider">
+                </div>
+                
+                <div class="trait-slider">
+                    <div class="trait-header">
+                        <span class="trait-name">Creativity</span>
+                        <span class="trait-value" id="creativity-value">50</span>
+                    </div>
+                    <input type="range" name="creativity" id="creativity" min="0" max="100" value="50" class="slider">
+                </div>
+                
+                <div class="trait-slider">
+                    <div class="trait-header">
+                        <span class="trait-name">Trust</span>
+                        <span class="trait-value" id="trust-value">50</span>
+                    </div>
+                    <input type="range" name="trust" id="trust" min="0" max="100" value="50" class="slider">
+                </div>
+                
+                <div class="trait-slider">
+                    <div class="trait-header">
+                        <span class="trait-name">Optimism</span>
+                        <span class="trait-value" id="optimism-value">50</span>
+                    </div>
+                    <input type="range" name="optimism" id="optimism" min="0" max="100" value="50" class="slider">
+                </div>
+            </div>
+            
+            <button type="button" class="btn btn-ghost randomize-btn" onclick="randomizeTraits()">
+                <i class="fas fa-random"></i>
+                Randomize Traits
+            </button>
+        </div>
+        
+        <!-- Mind Section (LLM) -->
+        <div class="form-section">
+            <h3 class="section-title">Mind (AI Brain)</h3>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label" for="provider">Provider</label>
+                    <select id="provider" name="provider" class="form-select" required>
+                        {% for p in providers %}
+                        <option value="{{ p.name }}" {% if p.name == 'ollama' %}selected{% endif %}>
+                            {{ p.name|title }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="model">Model</label>
+                    <select id="model" name="model_name" class="form-select" required>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-hint model-hint">
+                <i class="fas fa-brain"></i>
+                <span id="model-description">Select a model to power this character's thoughts.</span>
+            </div>
+        </div>
+        
+        <!-- Actions -->
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-large">
+                <i class="fas fa-plus"></i>
+                Create Character
+            </button>
+            
+            {% if characters|length >= 1 %}
+            <a href="{{ url_for('god_mode') }}" class="btn btn-secondary btn-large">
+                <i class="fas fa-play"></i>
+                Launch Simulation
+            </a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+<style>
+.create-container {
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 32px 24px;
+}
+
+.create-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.back-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: color 0.2s;
+}
+
+.back-link:hover {
+    color: var(--accent);
+}
+
+.page-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 24px;
+    flex: 1;
+}
+
+.char-count {
+    font-size: 14px;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    padding: 8px 16px;
+    border-radius: 20px;
+}
+
+.create-form {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.form-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+}
+
+.section-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--accent);
+    margin-bottom: 20px;
+}
+
+.form-row {
+    display: flex;
+    gap: 20px;
+}
+
+.form-group {
+    flex: 1;
+    margin-bottom: 20px;
+}
+
+.avatar-group {
+    flex: 0 0 auto;
+}
+
+.name-group {
+    flex: 1;
+}
+
+.form-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.form-input,
+.form-textarea,
+.form-select {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.2s;
+}
+
+.form-input:focus,
+.form-textarea:focus,
+.form-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.form-textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.form-select {
+    cursor: pointer;
+}
+
+.form-hint {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+}
+
+.model-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    background: var(--bg-dark);
+    border-radius: 8px;
+}
+
+.avatar-picker {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.avatar-option {
+    width: 44px;
+    height: 44px;
+    background: var(--bg-dark);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    font-size: 22px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.avatar-option:hover {
+    border-color: var(--text-secondary);
+}
+
+.avatar-option.selected {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.1);
+}
+
+.traits-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    margin-bottom: 16px;
+}
+
+.trait-slider {
+    background: var(--bg-dark);
+    padding: 16px;
+    border-radius: 10px;
+}
+
+.trait-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.trait-name {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.trait-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    color: var(--accent);
+}
+
+.slider {
+    width: 100%;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--border);
+    border-radius: 3px;
+    outline: none;
+}
+
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+}
+
+.randomize-btn {
+    margin: 0 auto;
+    display: flex;
+}
+
+.form-actions {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    padding-top: 16px;
+}
+
+.btn-large {
+    padding: 16px 32px;
+    font-size: 15px;
+}
+
+@media (max-width: 600px) {
+    .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+    
+    .traits-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .avatar-picker {
+        grid-template-columns: repeat(4, 1fr);
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const providerModels = {{ provider_models|tojson|safe if provider_models else '{}' }};
+
+// Avatar picker
+document.querySelectorAll('.avatar-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.avatar-option').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        document.getElementById('avatar-input').value = btn.dataset.avatar;
+    });
+});
+
+// Trait sliders
+const traits = ['curiosity', 'empathy', 'assertiveness', 'creativity', 'trust', 'optimism'];
+traits.forEach(trait => {
+    const slider = document.getElementById(trait);
+    const value = document.getElementById(`${trait}-value`);
+    slider.addEventListener('input', () => {
+        value.textContent = slider.value;
+    });
+});
+
+function randomizeTraits() {
+    traits.forEach(trait => {
+        const slider = document.getElementById(trait);
+        const value = document.getElementById(`${trait}-value`);
+        const random = Math.floor(Math.random() * 101);
+        slider.value = random;
+        value.textContent = random;
+    });
+}
+
+// Provider/Model selection
+const providerSelect = document.getElementById('provider');
+const modelSelect = document.getElementById('model');
+const modelDesc = document.getElementById('model-description');
+
+function updateModels() {
+    const provider = providerSelect.value;
+    const models = providerModels[provider] || [];
+    
+    modelSelect.innerHTML = '';
+    models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.name || m;
+        opt.textContent = m.name || m;
+        modelSelect.appendChild(opt);
+    });
+    
+    if (models.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No models available';
+        modelSelect.appendChild(opt);
+    }
+    
+    updateModelDescription();
+}
+
+function updateModelDescription() {
+    const provider = providerSelect.value;
+    const descriptions = {
+        'ollama': 'Local model running on your machine. Fast and private.',
+        'openai': 'OpenAI GPT models. Powerful reasoning capabilities.',
+        'gemini': 'Google Gemini models. Great for creative tasks.'
+    };
+    modelDesc.textContent = descriptions[provider] || 'Select a model to power this character\'s thoughts.';
+}
+
+providerSelect.addEventListener('change', updateModels);
+modelSelect.addEventListener('change', updateModelDescription);
+
+// Initialize
+updateModels();
+
+// Form submission
+document.getElementById('character-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const data = {
+        name: formData.get('name'),
+        avatar: formData.get('avatar'),
+        core_personality: formData.get('core_personality'),
+        provider: formData.get('provider'),
+        model_name: formData.get('model_name'),
+        initial_traits: {
+            curiosity: parseInt(formData.get('curiosity')),
+            empathy: parseInt(formData.get('empathy')),
+            assertiveness: parseInt(formData.get('assertiveness')),
+            creativity: parseInt(formData.get('creativity')),
+            trust: parseInt(formData.get('trust')),
+            optimism: parseInt(formData.get('optimism'))
+        }
+    };
+    
+    try {
+        const response = await fetch('/api/v2/characters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            showToast(`${data.name} created!`, 'success');
+            
+            // Check if we have 2+ characters
+            const countResponse = await fetch('/api/v2/characters');
+            const chars = await countResponse.json();
+            
+            if (chars.length >= 2) {
+                setTimeout(() => {
+                    window.location.href = '{{ url_for("god_mode") }}';
+                }, 1000);
+            } else {
+                e.target.reset();
+                document.querySelectorAll('.avatar-option').forEach(b => b.classList.remove('selected'));
+                document.querySelector('.avatar-option').classList.add('selected');
+                document.getElementById('avatar-input').value = '🧑';
+                traits.forEach(t => document.getElementById(`${t}-value`).textContent = '50');
+            }
+        } else {
+            const err = await response.json();
+            showToast(err.error || 'Failed to create character', 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+});
+</script>
+{% endblock %}

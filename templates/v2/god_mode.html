@@ -1,0 +1,1029 @@
+{% extends "v2/base.html" %}
+
+{% block title %}God Mode - LLMverse{% endblock %}
+
+{% block nav %}
+<nav class="nav-bar">
+    <a href="{{ url_for('welcome') }}" class="nav-logo">
+        <i class="fas fa-globe"></i>
+        <span>LLMverse</span>
+    </a>
+    <div class="nav-links">
+        <a href="{{ url_for('welcome') }}" class="nav-link">Home</a>
+        <a href="{{ url_for('create_character_page') }}" class="nav-link">Create</a>
+        <a href="{{ url_for('god_mode') }}" class="nav-link active">God Mode</a>
+    </div>
+    <div class="nav-status">
+        <div class="status-dot" id="sim-status-dot"></div>
+        <span id="sim-status-text">Paused</span>
+        <span class="sim-day">Day <span id="day-counter">{{ simulation.day if simulation else 1 }}</span></span>
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="god-container">
+    <!-- Character Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <h3>Characters</h3>
+            <a href="{{ url_for('create_character_page') }}" class="btn btn-ghost btn-small">
+                <i class="fas fa-plus"></i>
+            </a>
+        </div>
+        
+        <div class="character-list" id="character-list">
+            {% for char in characters %}
+            <div class="character-item" data-id="{{ char.id }}" onclick="selectCharacter({{ char.id }})">
+                <div class="char-avatar">{{ char.avatar or '🧑' }}</div>
+                <div class="char-details">
+                    <div class="char-name">{{ char.name }}</div>
+                    <div class="char-mood" id="mood-{{ char.id }}">Neutral</div>
+                </div>
+                <div class="char-status" id="status-{{ char.id }}">
+                    <div class="activity-dot idle"></div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <div class="sidebar-footer">
+            <button class="btn btn-primary btn-full" id="sim-toggle" onclick="toggleSimulation()">
+                <i class="fas fa-play" id="sim-icon"></i>
+                <span id="sim-btn-text">Start Simulation</span>
+            </button>
+            
+            <div class="speed-control">
+                <label>Speed</label>
+                <input type="range" id="sim-speed" min="0.5" max="3" step="0.5" value="1">
+                <span id="speed-value">1x</span>
+            </div>
+        </div>
+    </aside>
+    
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Conversation Feed -->
+        <div class="feed-container">
+            <div class="feed-header">
+                <div class="feed-tabs">
+                    <button class="feed-tab active" data-view="conversations" onclick="switchFeedView('conversations')">
+                        <i class="fas fa-comments"></i>
+                        Conversations
+                    </button>
+                    <button class="feed-tab" data-view="logs" onclick="switchFeedView('logs')">
+                        <i class="fas fa-list"></i>
+                        Full Logs
+                    </button>
+                    <button class="feed-tab" data-view="thoughts" onclick="switchFeedView('thoughts')">
+                        <i class="fas fa-brain"></i>
+                        Thoughts
+                    </button>
+                </div>
+                <button class="btn btn-ghost btn-small" onclick="clearFeed()">
+                    <i class="fas fa-eraser"></i>
+                </button>
+            </div>
+            
+            <div class="feed" id="feed">
+                <div class="feed-empty">
+                    <i class="fas fa-satellite-dish"></i>
+                    <p>Start the simulation to see characters interact</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- God Input -->
+        <div class="god-input-container">
+            <div class="god-mode-toggle">
+                <button class="mode-btn active" data-mode="broadcast" onclick="setGodMode('broadcast')">
+                    <i class="fas fa-broadcast-tower"></i>
+                    Broadcast to All
+                </button>
+                <button class="mode-btn" data-mode="whisper" onclick="setGodMode('whisper')">
+                    <i class="fas fa-user-secret"></i>
+                    Whisper to <span id="whisper-target">...</span>
+                </button>
+            </div>
+            
+            <div class="god-input">
+                <textarea id="god-message" placeholder="Inject a thought into their consciousness..." rows="2"></textarea>
+                <button class="send-btn" onclick="sendGodMessage()">
+                    <i class="fas fa-bolt"></i>
+                </button>
+            </div>
+            
+            <div class="god-hint">
+                <i class="fas fa-info-circle"></i>
+                Your message will appear as an introspective thought, not an external voice.
+            </div>
+        </div>
+    </main>
+    
+    <!-- Character Detail Panel -->
+    <aside class="detail-panel" id="detail-panel">
+        <div class="panel-header">
+            <h3>Character Details</h3>
+            <button class="btn btn-ghost btn-small" onclick="closeDetailPanel()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <div class="panel-content" id="panel-content">
+            <div class="panel-empty">
+                Select a character to view details
+            </div>
+        </div>
+    </aside>
+</div>
+
+<style>
+.god-container {
+    display: flex;
+    height: calc(100vh - 60px);
+    overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+    width: 280px;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sidebar-header h3 {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+}
+
+.character-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+}
+
+.character-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-bottom: 4px;
+}
+
+.character-item:hover {
+    background: var(--bg-dark);
+}
+
+.character-item.selected {
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid var(--accent);
+}
+
+.character-item .char-avatar {
+    width: 40px;
+    height: 40px;
+    background: var(--bg-dark);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.char-details {
+    flex: 1;
+}
+
+.char-details .char-name {
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.char-mood {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.char-status {
+    display: flex;
+    align-items: center;
+}
+
+.activity-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+}
+
+.activity-dot.active {
+    background: var(--success);
+    animation: pulse 1.5s infinite;
+}
+
+.activity-dot.thinking {
+    background: var(--accent);
+    animation: pulse 0.8s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.sidebar-footer {
+    padding: 20px;
+    border-top: 1px solid var(--border);
+}
+
+.btn-full {
+    width: 100%;
+    margin-bottom: 16px;
+}
+
+.speed-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.speed-control input {
+    flex: 1;
+}
+
+#speed-value {
+    font-family: 'Space Mono', monospace;
+    width: 30px;
+}
+
+/* Main Content */
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.feed-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.feed-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-card);
+}
+
+.feed-tabs {
+    display: flex;
+    gap: 8px;
+}
+
+.feed-tab {
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.feed-tab:hover {
+    background: var(--bg-dark);
+}
+
+.feed-tab.active {
+    background: var(--accent);
+    color: white;
+}
+
+.feed {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.feed-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    gap: 16px;
+}
+
+.feed-empty i {
+    font-size: 48px;
+    opacity: 0.3;
+}
+
+/* Message styles */
+.feed-message {
+    margin-bottom: 16px;
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.message-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.message-avatar {
+    width: 32px;
+    height: 32px;
+    background: var(--bg-card);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+}
+
+.message-sender {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.message-arrow {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.message-recipient {
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.message-time {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+
+.message-content {
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-left: 42px;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.message-content.god-message {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.1));
+    border-color: var(--accent);
+    font-style: italic;
+}
+
+.message-content.thought {
+    background: var(--bg-dark);
+    border-style: dashed;
+    color: var(--text-secondary);
+}
+
+/* Log styles */
+.log-entry {
+    padding: 8px 12px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    border-left: 2px solid var(--border);
+    margin-bottom: 4px;
+}
+
+.log-entry.info { border-color: var(--accent); }
+.log-entry.event { border-color: var(--success); }
+.log-entry.god { border-color: #a855f7; }
+.log-entry.error { border-color: var(--error); }
+
+.log-time {
+    color: var(--text-secondary);
+    margin-right: 8px;
+}
+
+/* God Input */
+.god-input-container {
+    padding: 20px;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+}
+
+.god-mode-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.mode-btn {
+    flex: 1;
+    padding: 10px 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-dark);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+
+.mode-btn:hover {
+    border-color: var(--text-secondary);
+}
+
+.mode-btn.active {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--accent);
+}
+
+.god-input {
+    display: flex;
+    gap: 12px;
+}
+
+.god-input textarea {
+    flex: 1;
+    padding: 12px 16px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+}
+
+.god-input textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.send-btn {
+    width: 50px;
+    height: 50px;
+    background: linear-gradient(135deg, var(--accent), #a855f7);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.send-btn:hover {
+    transform: scale(1.05);
+}
+
+.god-hint {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Detail Panel */
+.detail-panel {
+    width: 320px;
+    background: var(--bg-card);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.3s;
+}
+
+.detail-panel.open {
+    transform: translateX(0);
+}
+
+.panel-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.panel-empty {
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 40px 20px;
+}
+
+/* Character Profile in Panel */
+.profile-header {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.profile-avatar {
+    width: 80px;
+    height: 80px;
+    background: var(--bg-dark);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 40px;
+    margin: 0 auto 12px;
+}
+
+.profile-name {
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.profile-provider {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.profile-section {
+    margin-bottom: 24px;
+}
+
+.profile-section h4 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.trait-bar {
+    margin-bottom: 10px;
+}
+
+.trait-bar-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.trait-bar-fill {
+    height: 6px;
+    background: var(--bg-dark);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.trait-bar-value {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.5s;
+}
+
+.belief-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.belief-item {
+    padding: 10px 12px;
+    background: var(--bg-dark);
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+/* Nav status */
+.nav-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+
+.sim-day {
+    padding: 4px 10px;
+    background: var(--bg-dark);
+    border-radius: 12px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+}
+
+@media (max-width: 1200px) {
+    .detail-panel {
+        position: absolute;
+        right: 0;
+        top: 60px;
+        height: calc(100vh - 60px);
+        z-index: 100;
+    }
+}
+
+@media (max-width: 900px) {
+    .sidebar {
+        position: absolute;
+        left: -280px;
+        top: 60px;
+        height: calc(100vh - 60px);
+        z-index: 100;
+        transition: left 0.3s;
+    }
+    
+    .sidebar.open {
+        left: 0;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+<script>
+const socket = io();
+let selectedCharacterId = null;
+let godMode = 'broadcast';
+let isSimulationRunning = false;
+let currentView = 'conversations';
+
+// Socket events
+socket.on('connect', () => {
+    console.log('Connected to server');
+    updateConnectionStatus(true);
+});
+
+socket.on('disconnect', () => {
+    updateConnectionStatus(false);
+});
+
+socket.on('simulation_update', (data) => {
+    handleSimulationUpdate(data);
+});
+
+socket.on('character_message', (data) => {
+    addMessageToFeed(data);
+});
+
+socket.on('character_thought', (data) => {
+    addThoughtToFeed(data);
+});
+
+socket.on('character_evolution', (data) => {
+    showToast(`${data.character_name} has evolved!`, 'info');
+    if (selectedCharacterId === data.character_id) {
+        loadCharacterDetails(data.character_id);
+    }
+});
+
+socket.on('log', (data) => {
+    if (currentView === 'logs') {
+        addLogEntry(data);
+    }
+});
+
+// UI Functions
+function updateConnectionStatus(connected) {
+    const dot = document.getElementById('sim-status-dot');
+    dot.style.background = connected ? 'var(--success)' : 'var(--error)';
+}
+
+function selectCharacter(id) {
+    selectedCharacterId = id;
+    
+    document.querySelectorAll('.character-item').forEach(item => {
+        item.classList.toggle('selected', parseInt(item.dataset.id) === id);
+    });
+    
+    // Update whisper target
+    const char = document.querySelector(`.character-item[data-id="${id}"] .char-name`);
+    document.getElementById('whisper-target').textContent = char ? char.textContent : '...';
+    
+    loadCharacterDetails(id);
+    document.getElementById('detail-panel').classList.add('open');
+}
+
+function closeDetailPanel() {
+    document.getElementById('detail-panel').classList.remove('open');
+    selectedCharacterId = null;
+    document.querySelectorAll('.character-item').forEach(item => item.classList.remove('selected'));
+}
+
+async function loadCharacterDetails(id) {
+    try {
+        const response = await fetch(`/api/v2/characters/${id}`);
+        const char = await response.json();
+        
+        const panel = document.getElementById('panel-content');
+        panel.innerHTML = `
+            <div class="profile-header">
+                <div class="profile-avatar">${char.avatar || '🧑'}</div>
+                <div class="profile-name">${char.name}</div>
+                <div class="profile-provider">${char.provider} / ${char.model_name}</div>
+            </div>
+            
+            <div class="profile-section">
+                <h4>Personality Traits</h4>
+                ${renderTraitBars(char.state?.traits || {})}
+            </div>
+            
+            <div class="profile-section">
+                <h4>Current Mood</h4>
+                <div class="belief-item">${char.state?.emotional_state || 'Neutral'}</div>
+            </div>
+            
+            <div class="profile-section">
+                <h4>Core Personality</h4>
+                <div class="belief-item">${char.core_personality || 'Not defined'}</div>
+            </div>
+            
+            ${char.beliefs?.length ? `
+            <div class="profile-section">
+                <h4>Beliefs</h4>
+                <div class="belief-list">
+                    ${char.beliefs.map(b => `<div class="belief-item">${b.content}</div>`).join('')}
+                </div>
+            </div>
+            ` : ''}
+            
+            <div class="profile-section">
+                <a href="/v2/profile/${id}" class="btn btn-secondary btn-full">
+                    <i class="fas fa-user"></i>
+                    Full Profile
+                </a>
+            </div>
+        `;
+    } catch (e) {
+        console.error('Failed to load character:', e);
+    }
+}
+
+function renderTraitBars(traits) {
+    const traitNames = ['curiosity', 'empathy', 'assertiveness', 'creativity', 'trust', 'optimism'];
+    return traitNames.map(t => `
+        <div class="trait-bar">
+            <div class="trait-bar-header">
+                <span>${t.charAt(0).toUpperCase() + t.slice(1)}</span>
+                <span>${traits[t] || 50}</span>
+            </div>
+            <div class="trait-bar-fill">
+                <div class="trait-bar-value" style="width: ${traits[t] || 50}%"></div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function setGodMode(mode) {
+    godMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+    
+    if (mode === 'whisper' && !selectedCharacterId) {
+        showToast('Select a character first', 'warning');
+    }
+}
+
+async function sendGodMessage() {
+    const textarea = document.getElementById('god-message');
+    const message = textarea.value.trim();
+    
+    if (!message) return;
+    
+    if (godMode === 'whisper' && !selectedCharacterId) {
+        showToast('Select a character to whisper to', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/v2/god/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message,
+                mode: godMode,
+                target_id: godMode === 'whisper' ? selectedCharacterId : null
+            })
+        });
+        
+        if (response.ok) {
+            textarea.value = '';
+            showToast('Message sent', 'success');
+        } else {
+            const err = await response.json();
+            showToast(err.error || 'Failed to send', 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+async function toggleSimulation() {
+    const endpoint = isSimulationRunning ? '/api/v2/simulation/stop' : '/api/v2/simulation/start';
+    
+    try {
+        const response = await fetch(endpoint, { method: 'POST' });
+        if (response.ok) {
+            isSimulationRunning = !isSimulationRunning;
+            updateSimulationUI();
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+function updateSimulationUI() {
+    const btn = document.getElementById('sim-toggle');
+    const icon = document.getElementById('sim-icon');
+    const text = document.getElementById('sim-btn-text');
+    const statusText = document.getElementById('sim-status-text');
+    
+    if (isSimulationRunning) {
+        icon.className = 'fas fa-pause';
+        text.textContent = 'Pause Simulation';
+        btn.classList.add('running');
+        statusText.textContent = 'Running';
+    } else {
+        icon.className = 'fas fa-play';
+        text.textContent = 'Start Simulation';
+        btn.classList.remove('running');
+        statusText.textContent = 'Paused';
+    }
+}
+
+function switchFeedView(view) {
+    currentView = view;
+    document.querySelectorAll('.feed-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.view === view);
+    });
+    
+    // Clear and reload feed based on view
+    const feed = document.getElementById('feed');
+    feed.innerHTML = `
+        <div class="feed-empty">
+            <i class="fas fa-${view === 'logs' ? 'list' : view === 'thoughts' ? 'brain' : 'comments'}"></i>
+            <p>Waiting for ${view}...</p>
+        </div>
+    `;
+}
+
+function addMessageToFeed(data) {
+    if (currentView !== 'conversations') return;
+    
+    const feed = document.getElementById('feed');
+    const isEmpty = feed.querySelector('.feed-empty');
+    if (isEmpty) feed.innerHTML = '';
+    
+    const msg = document.createElement('div');
+    msg.className = 'feed-message';
+    msg.innerHTML = `
+        <div class="message-header">
+            <div class="message-avatar">${data.sender_avatar || '🧑'}</div>
+            <span class="message-sender">${data.sender_name}</span>
+            <span class="message-arrow">→</span>
+            <span class="message-recipient">${data.recipient_name || 'Everyone'}</span>
+            <span class="message-time">${formatTime(data.timestamp)}</span>
+        </div>
+        <div class="message-content ${data.is_god ? 'god-message' : ''}">${data.content}</div>
+    `;
+    
+    feed.appendChild(msg);
+    feed.scrollTop = feed.scrollHeight;
+}
+
+function addThoughtToFeed(data) {
+    if (currentView !== 'thoughts') return;
+    
+    const feed = document.getElementById('feed');
+    const isEmpty = feed.querySelector('.feed-empty');
+    if (isEmpty) feed.innerHTML = '';
+    
+    const msg = document.createElement('div');
+    msg.className = 'feed-message';
+    msg.innerHTML = `
+        <div class="message-header">
+            <div class="message-avatar">${data.avatar || '🧑'}</div>
+            <span class="message-sender">${data.character_name}</span>
+            <span class="message-time">${formatTime(data.timestamp)}</span>
+        </div>
+        <div class="message-content thought">${data.content}</div>
+    `;
+    
+    feed.appendChild(msg);
+    feed.scrollTop = feed.scrollHeight;
+}
+
+function addLogEntry(data) {
+    const feed = document.getElementById('feed');
+    const isEmpty = feed.querySelector('.feed-empty');
+    if (isEmpty) feed.innerHTML = '';
+    
+    const log = document.createElement('div');
+    log.className = `log-entry ${data.level || 'info'}`;
+    log.innerHTML = `
+        <span class="log-time">${formatTime(data.timestamp)}</span>
+        ${data.message}
+    `;
+    
+    feed.appendChild(log);
+    feed.scrollTop = feed.scrollHeight;
+}
+
+function clearFeed() {
+    const feed = document.getElementById('feed');
+    feed.innerHTML = `
+        <div class="feed-empty">
+            <i class="fas fa-satellite-dish"></i>
+            <p>Feed cleared</p>
+        </div>
+    `;
+}
+
+function formatTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
+function handleSimulationUpdate(data) {
+    if (data.day) {
+        document.getElementById('day-counter').textContent = data.day;
+    }
+    
+    if (data.character_states) {
+        data.character_states.forEach(cs => {
+            const mood = document.getElementById(`mood-${cs.id}`);
+            if (mood) mood.textContent = cs.emotional_state || 'Neutral';
+            
+            const status = document.getElementById(`status-${cs.id}`);
+            if (status) {
+                const dot = status.querySelector('.activity-dot');
+                dot.className = `activity-dot ${cs.activity || 'idle'}`;
+            }
+        });
+    }
+}
+
+// Speed control
+document.getElementById('sim-speed').addEventListener('input', function() {
+    const value = this.value;
+    document.getElementById('speed-value').textContent = value + 'x';
+    
+    fetch('/api/v2/simulation/speed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ speed: parseFloat(value) })
+    });
+});
+
+// Keyboard shortcuts
+document.getElementById('god-message').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendGodMessage();
+    }
+});
+</script>
+{% endblock %}

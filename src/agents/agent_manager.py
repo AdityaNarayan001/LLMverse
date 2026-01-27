@@ -56,7 +56,7 @@ class AgentManager:
         
         agent_data = Agent(
             name=name,
-            personality=personality,
+            core_personality=personality,  # Updated for v2 model
             provider=provider,
             model_name=model_name,
             is_active=True
@@ -281,7 +281,7 @@ class AgentManager:
     
     def _generate_topic_focused_message(self, sender: LLMAgent, target: LLMAgent, topic: str) -> str:
         """Generate a focused message based on the current conversation topic"""
-        sender_personality = sender.agent_data.personality.lower()
+        sender_personality = sender.agent_data.core_personality.lower()
         target_name = target.agent_data.name
         
         # Topic-specific conversation starters
@@ -369,7 +369,7 @@ class AgentManager:
                                     original_message: str, topic: str) -> str:
         """Generate a natural response to a message within the current topic"""
         try:
-            responder_personality = responder.agent_data.personality.lower()
+            responder_personality = responder.agent_data.core_personality.lower()
             sender_name = sender.agent_data.name
             
             # Create a contextual response prompt

@@ -1,0 +1,298 @@
+{% extends "v2/base.html" %}
+
+{% block title %}Welcome to LLMverse{% endblock %}
+
+{% block nav %}
+<!-- Minimal nav for welcome page -->
+<nav class="nav-bar">
+    <a href="{{ url_for('welcome') }}" class="nav-logo">
+        <i class="fas fa-globe"></i>
+        <span>LLMverse</span>
+    </a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="welcome-container">
+    <div class="welcome-content">
+        <div class="welcome-hero">
+            <div class="hero-icon">🌍</div>
+            <h1 class="hero-title">Create Your World</h1>
+            <p class="hero-subtitle">
+                Design characters with unique personalities, give them minds powered by AI, 
+                and watch them evolve through their own experiences.
+            </p>
+        </div>
+        
+        <div class="welcome-stats" id="welcome-stats">
+            <div class="stat-item">
+                <div class="stat-value" id="char-count">{{ characters|length }}</div>
+                <div class="stat-label">Characters</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">{{ providers|length }}</div>
+                <div class="stat-label">AI Providers</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="sim-status">{{ 'Active' if simulation_running else 'Ready' }}</div>
+                <div class="stat-label">Simulation</div>
+            </div>
+        </div>
+        
+        <div class="welcome-actions">
+            {% if characters|length >= 2 %}
+            <a href="{{ url_for('god_mode') }}" class="btn btn-primary btn-large">
+                <i class="fas fa-play"></i>
+                Enter World
+            </a>
+            <a href="{{ url_for('create_character_page') }}" class="btn btn-secondary btn-large">
+                <i class="fas fa-plus"></i>
+                Add Character
+            </a>
+            {% else %}
+            <a href="{{ url_for('create_character_page') }}" class="btn btn-primary btn-large">
+                <i class="fas fa-plus"></i>
+                Create Characters
+            </a>
+            <button onclick="generateRandomCharacters()" class="btn btn-secondary btn-large">
+                <i class="fas fa-dice"></i>
+                Generate Random
+            </button>
+            {% endif %}
+        </div>
+        
+        {% if characters|length < 2 %}
+        <div class="welcome-hint">
+            <i class="fas fa-info-circle"></i>
+            Create at least 2 characters to start the simulation
+        </div>
+        {% endif %}
+        
+        {% if characters|length > 0 %}
+        <div class="existing-characters">
+            <h3 class="section-title">Your Characters</h3>
+            <div class="character-grid">
+                {% for char in characters %}
+                <div class="character-card-mini">
+                    <div class="char-avatar">{{ char.avatar or '🧑' }}</div>
+                    <div class="char-info">
+                        <div class="char-name">{{ char.name }}</div>
+                        <div class="char-provider">{{ char.provider }} / {{ char.model_name }}</div>
+                    </div>
+                    <button onclick="deleteCharacter({{ char.id }})" class="btn btn-ghost btn-small">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.welcome-container {
+    min-height: calc(100vh - 100px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.welcome-content {
+    max-width: 600px;
+    width: 100%;
+    padding: 40px 24px;
+    text-align: center;
+}
+
+.welcome-hero {
+    margin-bottom: 40px;
+}
+
+.hero-icon {
+    font-size: 80px;
+    margin-bottom: 24px;
+    animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+.hero-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, var(--text-primary), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.hero-subtitle {
+    font-size: 16px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.welcome-stats {
+    display: flex;
+    justify-content: center;
+    gap: 48px;
+    margin-bottom: 40px;
+    padding: 24px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+}
+
+.stat-item {
+    text-align: center;
+}
+
+.stat-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.stat-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+}
+
+.welcome-actions {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    margin-bottom: 24px;
+}
+
+.btn-large {
+    padding: 16px 32px;
+    font-size: 16px;
+}
+
+.welcome-hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    padding: 12px 20px;
+    border-radius: 8px;
+    border-left: 3px solid var(--accent);
+}
+
+.existing-characters {
+    margin-top: 48px;
+    text-align: left;
+}
+
+.section-title {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.character-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.character-card-mini {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: border-color 0.2s;
+}
+
+.character-card-mini:hover {
+    border-color: var(--accent);
+}
+
+.char-avatar {
+    width: 48px;
+    height: 48px;
+    background: var(--bg-dark);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+}
+
+.char-info {
+    flex: 1;
+}
+
+.char-name {
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.char-provider {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.btn-small {
+    padding: 8px 12px;
+    font-size: 12px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function generateRandomCharacters() {
+    try {
+        showToast('Generating characters...', 'info');
+        const response = await fetch('/api/v2/characters/generate-random', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ count: 2 })
+        });
+        
+        if (response.ok) {
+            showToast('Characters created!', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            const data = await response.json();
+            showToast(data.error || 'Failed to generate', 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+async function deleteCharacter(id) {
+    if (!confirm('Delete this character?')) return;
+    
+    try {
+        const response = await fetch(`/api/v2/characters/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showToast('Character deleted', 'success');
+            location.reload();
+        } else {
+            showToast('Failed to delete', 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+</script>
+{% endblock %}

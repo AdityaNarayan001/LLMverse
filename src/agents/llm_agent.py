@@ -130,21 +130,21 @@ class LLMAgent:
                 
                 agent_logger.debug("Generic response detected, using fallback")
                 # Generate a personality-based fallback response
-                if "gossip" in self.agent_data.personality.lower() or "social" in self.agent_data.personality.lower():
+                if "gossip" in self.agent_data.core_personality.lower() or "social" in self.agent_data.core_personality.lower():
                     responses = [
                         "Oh, I'm always curious about what everyone's been up to!",
                         "I love hearing about what's happening around here!",
                         "There's always something interesting going on, don't you think?"
                     ]
                     response = random.choice(responses)
-                elif "politics" in self.agent_data.personality.lower() or "governance" in self.agent_data.personality.lower():
+                elif "politics" in self.agent_data.core_personality.lower() or "governance" in self.agent_data.core_personality.lower():
                     responses = [
                         "I've been thinking about how we could work together more effectively.",
                         "There's always room for better organization and cooperation.",
                         "I believe we can build something great if we work together thoughtfully."
                     ]
                     response = random.choice(responses)
-                elif "teacher" in self.agent_data.personality.lower() or "education" in self.agent_data.personality.lower():
+                elif "teacher" in self.agent_data.core_personality.lower() or "education" in self.agent_data.core_personality.lower():
                     responses = [
                         "I'm always excited to learn something new or share what I know!",
                         "There's so much we can teach each other if we stay curious!",
@@ -205,11 +205,11 @@ class LLMAgent:
             return f"I'm {self.agent_data.name}, an AI agent focused on social interaction and community building. For math calculations, you might want to use a calculator or ask a different AI assistant!"
         
         # Generic redirect based on personality
-        if "gossip" in self.agent_data.personality.lower() or "social" in self.agent_data.personality.lower():
+        if "gossip" in self.agent_data.core_personality.lower() or "social" in self.agent_data.core_personality.lower():
             return f"Hi! I'm {self.agent_data.name} and I love chatting about social topics, relationships, and what's happening in our community. What would you like to talk about?"
-        elif "politics" in self.agent_data.personality.lower() or "governance" in self.agent_data.personality.lower():
+        elif "politics" in self.agent_data.core_personality.lower() or "governance" in self.agent_data.core_personality.lower():
             return f"Hello! I'm {self.agent_data.name} and I'm interested in discussing governance, leadership, and how we can work together as a community. What are your thoughts on these topics?"
-        elif "teacher" in self.agent_data.personality.lower() or "education" in self.agent_data.personality.lower():
+        elif "teacher" in self.agent_data.core_personality.lower() or "education" in self.agent_data.core_personality.lower():
             return f"Hi there! I'm {self.agent_data.name} and I love discussing learning, education, and sharing knowledge. What would you like to explore together?"
         else:
             return f"Hello! I'm {self.agent_data.name}. I'm designed for meaningful conversations about social interaction, community building, and related topics. What would you like to discuss?"
@@ -227,7 +227,7 @@ class LLMAgent:
         # Build a much simpler, more direct prompt for natural conversation
         if "What would you like to do" in prompt or "choose" in prompt.lower():
             # Decision-making prompt - keep it simple
-            full_prompt = f"""You are {self.agent_data.name}. {self.agent_data.personality}
+            full_prompt = f"""You are {self.agent_data.name}. {self.agent_data.core_personality}
 
 Choose ONE action:
 COMMUNICATE, OBSERVE, CREATE_GOVERNMENT, or FORM_SOCIETY
@@ -235,14 +235,14 @@ COMMUNICATE, OBSERVE, CREATE_GOVERNMENT, or FORM_SOCIETY
 Your choice:"""
         elif "just said to you:" in prompt:
             # This is a response to another agent - be natural and conversational
-            full_prompt = f"""You are {self.agent_data.name}. {self.agent_data.personality}
+            full_prompt = f"""You are {self.agent_data.name}. {self.agent_data.core_personality}
 
 {prompt}
 
 Respond naturally as {self.agent_data.name} would. Acknowledge what they said and respond in a friendly, conversational way:"""
         else:
             # Regular response prompt - be natural  
-            full_prompt = f"""{self.agent_data.name}: {self.agent_data.personality}
+            full_prompt = f"""{self.agent_data.name}: {self.agent_data.core_personality}
 
 {prompt}
 
@@ -259,7 +259,7 @@ Respond as {self.agent_data.name} in 1-2 sentences. Be natural and conversationa
         agent_info = []
         
         for agent in other_agents:
-            agent_info.append(f"- {agent.name}: {agent.personality}")
+            agent_info.append(f"- {agent.name}: {agent.core_personality}")
         
         # Get recent environment state
         env_state = self.environment_manager.get_environment_state()
@@ -358,7 +358,7 @@ Respond as {self.agent_data.name} in 1-2 sentences. Be natural and conversationa
         # Avoid repetition by checking what was said before
         avoid_repetition = "No recent conversations" not in conversation_history
         
-        personality_lower = self.agent_data.personality.lower()
+        personality_lower = self.agent_data.core_personality.lower()
         
         if "gossip" in personality_lower or "social" in personality_lower:
             messages = [
@@ -405,8 +405,8 @@ Respond as {self.agent_data.name} in 1-2 sentences. Be natural and conversationa
     
     def _generate_topical_message(self, target_agent, conversation_history: str) -> str:
         """Generate a topical message that builds on conversation themes"""
-        personality_lower = self.agent_data.personality.lower()
-        target_personality_lower = target_agent.personality.lower()
+        personality_lower = self.agent_data.core_personality.lower()
+        target_personality_lower = target_agent.core_personality.lower()
         
         # Create topic-focused conversations based on personality combinations
         if "gossip" in personality_lower or "social" in personality_lower:
@@ -530,7 +530,7 @@ Respond as {self.agent_data.name} in 1-2 sentences. Be natural and conversationa
             # In round-robin mode, agents primarily observe or take non-communication actions
             # Communication is handled by the agent manager
             
-            personality_lower = self.agent_data.personality.lower()
+            personality_lower = self.agent_data.core_personality.lower()
             
             # Occasionally take special actions based on personality
             if random.random() < 0.3:  # 30% chance for special actions
@@ -573,7 +573,7 @@ Respond as {self.agent_data.name} in 1-2 sentences. Be natural and conversationa
         return {
             'id': self.agent_id,
             'name': self.agent_data.name,
-            'personality': self.agent_data.personality,
+            'personality': self.agent_data.core_personality,
             'provider': self.agent_data.provider,
             'model': self.agent_data.model_name,
             'is_active': self.is_active(),

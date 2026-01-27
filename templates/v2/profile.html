@@ -1,0 +1,810 @@
+{% extends "v2/base.html" %}
+
+{% block title %}{{ character.name }} - LLMverse{% endblock %}
+
+{% block content %}
+<div class="profile-container">
+    <div class="profile-header-section">
+        <a href="{{ url_for('god_mode') }}" class="back-link">
+            <i class="fas fa-arrow-left"></i>
+            Back to God Mode
+        </a>
+    </div>
+    
+    <div class="profile-layout">
+        <!-- Main Profile -->
+        <div class="profile-main">
+            <div class="profile-card">
+                <div class="profile-identity">
+                    <div class="profile-avatar-large">{{ character.avatar or '🧑' }}</div>
+                    <div class="profile-info">
+                        <h1 class="profile-name">{{ character.name }}</h1>
+                        <div class="profile-meta">
+                            <span class="meta-item">
+                                <i class="fas fa-brain"></i>
+                                {{ character.provider }} / {{ character.model_name }}
+                            </span>
+                            <span class="meta-item">
+                                <i class="fas fa-calendar"></i>
+                                Created {{ character.created_at.strftime('%b %d, %Y') if character.created_at else 'Unknown' }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="profile-personality">
+                    <h3>Core Personality</h3>
+                    <p>{{ character.core_personality or 'No personality defined.' }}</p>
+                </div>
+            </div>
+            
+            <!-- Traits Section -->
+            <div class="section-card">
+                <div class="section-header">
+                    <h3><i class="fas fa-chart-bar"></i> Personality Traits</h3>
+                    <span class="evolution-count">{{ evolutions|length }} evolution{{ 's' if evolutions|length != 1 else '' }}</span>
+                </div>
+                
+                <div class="traits-display">
+                    {% set traits = state.traits if state and state.traits else {} %}
+                    {% for trait_name in ['curiosity', 'empathy', 'assertiveness', 'creativity', 'trust', 'optimism'] %}
+                    <div class="trait-display">
+                        <div class="trait-label">
+                            <span class="trait-icon">
+                                {% if trait_name == 'curiosity' %}🔍
+                                {% elif trait_name == 'empathy' %}💗
+                                {% elif trait_name == 'assertiveness' %}💪
+                                {% elif trait_name == 'creativity' %}🎨
+                                {% elif trait_name == 'trust' %}🤝
+                                {% elif trait_name == 'optimism' %}☀️
+                                {% endif %}
+                            </span>
+                            {{ trait_name|title }}
+                        </div>
+                        <div class="trait-bar-large">
+                            <div class="trait-fill" style="width: {{ traits.get(trait_name, 50) }}%"></div>
+                        </div>
+                        <div class="trait-value">{{ traits.get(trait_name, 50) }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Memory Section -->
+            <div class="section-card">
+                <div class="section-header">
+                    <h3><i class="fas fa-memory"></i> Memory</h3>
+                    <div class="memory-toggle">
+                        <button class="toggle-btn active" data-view="summary" onclick="toggleMemoryView('summary')">Summary</button>
+                        <button class="toggle-btn" data-view="full" onclick="toggleMemoryView('full')">Full Logs</button>
+                    </div>
+                </div>
+                
+                <div id="memory-summary" class="memory-view active">
+                    {% if state and state.memories %}
+                    <div class="memory-grid">
+                        <div class="memory-category">
+                            <h4>Short-term</h4>
+                            <ul class="memory-list">
+                                {% for m in state.memories.get('short_term', [])[:5] %}
+                                <li>{{ m }}</li>
+                                {% else %}
+                                <li class="empty">No short-term memories</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        <div class="memory-category">
+                            <h4>Long-term</h4>
+                            <ul class="memory-list">
+                                {% for m in state.memories.get('long_term', [])[:5] %}
+                                <li>{{ m }}</li>
+                                {% else %}
+                                <li class="empty">No long-term memories</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        <div class="memory-category">
+                            <h4>Core Memories</h4>
+                            <ul class="memory-list">
+                                {% for m in state.memories.get('core', []) %}
+                                <li class="core">{{ m }}</li>
+                                {% else %}
+                                <li class="empty">No core memories</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="empty-state">
+                        <i class="fas fa-brain"></i>
+                        <p>No memories yet. Start the simulation to see this character form memories.</p>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <div id="memory-full" class="memory-view">
+                    <div class="log-container" id="memory-logs">
+                        <div class="loading">Loading logs...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Beliefs Section -->
+            <div class="section-card">
+                <div class="section-header">
+                    <h3><i class="fas fa-lightbulb"></i> Beliefs</h3>
+                </div>
+                
+                {% if beliefs %}
+                <div class="beliefs-grid">
+                    {% for belief in beliefs %}
+                    <div class="belief-card">
+                        <div class="belief-content">{{ belief.content }}</div>
+                        <div class="belief-meta">
+                            <span class="belief-strength">
+                                {% for i in range(5) %}
+                                <i class="fas fa-star{% if i >= belief.strength %}-o{% endif %}"></i>
+                                {% endfor %}
+                            </span>
+                            <span class="belief-reason">{{ belief.reason }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <i class="fas fa-lightbulb"></i>
+                    <p>No beliefs formed yet.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Sidebar -->
+        <aside class="profile-sidebar">
+            <!-- Current State -->
+            <div class="sidebar-card">
+                <h4>Current State</h4>
+                <div class="state-item">
+                    <span class="state-label">Emotional State</span>
+                    <span class="state-value mood">{{ state.emotional_state if state else 'Neutral' }}</span>
+                </div>
+                <div class="state-item">
+                    <span class="state-label">Total Conversations</span>
+                    <span class="state-value">{{ conversation_count or 0 }}</span>
+                </div>
+                <div class="state-item">
+                    <span class="state-label">Evolutions</span>
+                    <span class="state-value">{{ evolutions|length }}</span>
+                </div>
+            </div>
+            
+            <!-- Relationships -->
+            <div class="sidebar-card">
+                <h4>Relationships</h4>
+                {% if state and state.relationships %}
+                <div class="relationships-list">
+                    {% for char_id, rel in state.relationships.items() %}
+                    <div class="relationship-item">
+                        <span class="rel-name">{{ rel.name or 'Character ' + char_id }}</span>
+                        <div class="rel-bar">
+                            <div class="rel-fill {% if rel.score > 0 %}positive{% else %}negative{% endif %}" 
+                                 style="width: {{ (rel.score|abs) }}%"></div>
+                        </div>
+                        <span class="rel-score">{{ rel.score }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state small">
+                    <p>No relationships formed yet.</p>
+                </div>
+                {% endif %}
+            </div>
+            
+            <!-- Evolution Timeline -->
+            <div class="sidebar-card">
+                <h4>Evolution Timeline</h4>
+                {% if evolutions %}
+                <div class="evolution-timeline">
+                    {% for evo in evolutions[:5] %}
+                    <div class="evolution-item">
+                        <div class="evo-dot"></div>
+                        <div class="evo-content">
+                            <div class="evo-type">{{ evo.evolution_type }}</div>
+                            <div class="evo-desc">{{ evo.description }}</div>
+                            <div class="evo-time">{{ evo.created_at.strftime('%b %d') if evo.created_at else '' }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% if evolutions|length > 5 %}
+                <button class="btn btn-ghost btn-small btn-full" onclick="showAllEvolutions()">
+                    View All ({{ evolutions|length }})
+                </button>
+                {% endif %}
+                {% else %}
+                <div class="empty-state small">
+                    <p>No evolutions yet.</p>
+                </div>
+                {% endif %}
+            </div>
+            
+            <!-- Actions -->
+            <div class="sidebar-card actions">
+                <button class="btn btn-secondary btn-full" onclick="whisperToCharacter()">
+                    <i class="fas fa-user-secret"></i>
+                    Whisper
+                </button>
+                <button class="btn btn-ghost btn-full" onclick="resetCharacter()">
+                    <i class="fas fa-undo"></i>
+                    Reset Evolution
+                </button>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<style>
+.profile-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.profile-header-section {
+    margin-bottom: 24px;
+}
+
+.back-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: color 0.2s;
+}
+
+.back-link:hover {
+    color: var(--accent);
+}
+
+.profile-layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 24px;
+}
+
+/* Profile Card */
+.profile-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 24px;
+}
+
+.profile-identity {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.profile-avatar-large {
+    width: 100px;
+    height: 100px;
+    background: var(--bg-dark);
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 50px;
+}
+
+.profile-info {
+    flex: 1;
+}
+
+.profile-name {
+    font-family: 'Space Mono', monospace;
+    font-size: 32px;
+    margin-bottom: 12px;
+}
+
+.profile-meta {
+    display: flex;
+    gap: 24px;
+}
+
+.meta-item {
+    font-size: 14px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.profile-personality h3 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.profile-personality p {
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text-primary);
+}
+
+/* Section Cards */
+.section-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.section-header h3 {
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.section-header h3 i {
+    color: var(--accent);
+}
+
+.evolution-count {
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: var(--bg-dark);
+    padding: 6px 12px;
+    border-radius: 12px;
+}
+
+/* Traits Display */
+.traits-display {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.trait-display {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.trait-label {
+    width: 140px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.trait-icon {
+    font-size: 18px;
+}
+
+.trait-bar-large {
+    flex: 1;
+    height: 10px;
+    background: var(--bg-dark);
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.trait-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #a855f7);
+    border-radius: 5px;
+    transition: width 0.5s;
+}
+
+.trait-value {
+    width: 40px;
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    text-align: right;
+    color: var(--accent);
+}
+
+/* Memory Views */
+.memory-toggle {
+    display: flex;
+    gap: 4px;
+    background: var(--bg-dark);
+    padding: 4px;
+    border-radius: 8px;
+}
+
+.toggle-btn {
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.toggle-btn.active {
+    background: var(--accent);
+    color: white;
+}
+
+.memory-view {
+    display: none;
+}
+
+.memory-view.active {
+    display: block;
+}
+
+.memory-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+}
+
+.memory-category h4 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.memory-list {
+    list-style: none;
+    padding: 0;
+}
+
+.memory-list li {
+    padding: 10px 12px;
+    background: var(--bg-dark);
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.memory-list li.empty {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.memory-list li.core {
+    border-left: 3px solid var(--accent);
+}
+
+.log-container {
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--bg-dark);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+}
+
+/* Beliefs */
+.beliefs-grid {
+    display: grid;
+    gap: 16px;
+}
+
+.belief-card {
+    padding: 16px;
+    background: var(--bg-dark);
+    border-radius: 10px;
+}
+
+.belief-content {
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.belief-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.belief-strength i {
+    color: var(--accent);
+    font-size: 10px;
+}
+
+/* Sidebar */
+.profile-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.sidebar-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+}
+
+.sidebar-card h4 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.state-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.state-item:last-child {
+    border-bottom: none;
+}
+
+.state-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.state-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+}
+
+.state-value.mood {
+    color: var(--accent);
+}
+
+/* Relationships */
+.relationships-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.relationship-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.rel-name {
+    width: 80px;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rel-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-dark);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.rel-fill {
+    height: 100%;
+    border-radius: 3px;
+}
+
+.rel-fill.positive {
+    background: var(--success);
+}
+
+.rel-fill.negative {
+    background: var(--error);
+}
+
+.rel-score {
+    width: 30px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    text-align: right;
+}
+
+/* Evolution Timeline */
+.evolution-timeline {
+    position: relative;
+    padding-left: 20px;
+}
+
+.evolution-timeline::before {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+}
+
+.evolution-item {
+    position: relative;
+    padding-bottom: 16px;
+}
+
+.evo-dot {
+    position: absolute;
+    left: -20px;
+    top: 4px;
+    width: 12px;
+    height: 12px;
+    background: var(--accent);
+    border-radius: 50%;
+    border: 2px solid var(--bg-card);
+}
+
+.evo-content {
+    padding-left: 8px;
+}
+
+.evo-type {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.evo-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.evo-time {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+/* Actions */
+.sidebar-card.actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-secondary);
+}
+
+.empty-state i {
+    font-size: 40px;
+    opacity: 0.3;
+    margin-bottom: 16px;
+}
+
+.empty-state.small {
+    padding: 20px;
+}
+
+.empty-state.small i {
+    font-size: 24px;
+}
+
+.btn-full {
+    width: 100%;
+}
+
+@media (max-width: 1000px) {
+    .profile-layout {
+        grid-template-columns: 1fr;
+    }
+    
+    .profile-sidebar {
+        order: -1;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .memory-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const characterId = {{ character.id }};
+
+function toggleMemoryView(view) {
+    document.querySelectorAll('.toggle-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === view);
+    });
+    
+    document.querySelectorAll('.memory-view').forEach(v => {
+        v.classList.toggle('active', v.id === `memory-${view}`);
+    });
+    
+    if (view === 'full') {
+        loadFullLogs();
+    }
+}
+
+async function loadFullLogs() {
+    const container = document.getElementById('memory-logs');
+    
+    try {
+        const response = await fetch(`/api/v2/characters/${characterId}/logs`);
+        const logs = await response.json();
+        
+        if (logs.length === 0) {
+            container.innerHTML = '<div class="empty-state small"><p>No logs available</p></div>';
+            return;
+        }
+        
+        container.innerHTML = logs.map(log => `
+            <div class="log-entry">
+                <span class="log-time">${formatTime(log.timestamp)}</span>
+                <span class="log-type">[${log.type}]</span>
+                ${log.content}
+            </div>
+        `).join('');
+    } catch (e) {
+        container.innerHTML = '<div class="error">Failed to load logs</div>';
+    }
+}
+
+function formatTime(ts) {
+    if (!ts) return '';
+    return new Date(ts).toLocaleString();
+}
+
+function whisperToCharacter() {
+    // Navigate to god mode with this character selected
+    window.location.href = `/v2/god-mode?whisper=${characterId}`;
+}
+
+async function resetCharacter() {
+    if (!confirm('Reset this character\'s evolution? This will restore their original traits but keep memories.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/v2/characters/${characterId}/reset`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            showToast('Character evolution reset', 'success');
+            location.reload();
+        } else {
+            showToast('Failed to reset', 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+function showAllEvolutions() {
+    // Could open a modal with full evolution history
+    showToast('Full evolution history coming soon', 'info');
+}
+</script>
+{% endblock %}

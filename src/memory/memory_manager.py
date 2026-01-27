@@ -5,8 +5,8 @@ from models import Memory, db
 class MemoryManager:
     """Manages short-term and long-term memory for agents"""
     
-    def __init__(self, agent_id: int):
-        self.agent_id = agent_id
+    def __init__(self, character_id: int):
+        self.character_id = character_id
         self.short_term_limit = 50  # Can hold 50 conversations
         self.long_term_limit = 100  # Can hold 100 important conversations
         self.long_term_threshold = 6.0  # Importance score threshold for long-term storage
@@ -22,7 +22,7 @@ class MemoryManager:
             expires_at = datetime.utcnow() + timedelta(hours=24)  # Short-term memories expire in 24h
         
         memory = Memory(
-            agent_id=self.agent_id,
+            character_id=self.character_id,
             content=content,
             memory_type=memory_type,
             importance_score=importance_score,
@@ -43,7 +43,7 @@ class MemoryManager:
     
     def get_memories(self, memory_type: str = None, limit: int = None) -> List[Memory]:
         """Retrieve memories, optionally filtered by type"""
-        query = Memory.query.filter_by(agent_id=self.agent_id)
+        query = Memory.query.filter_by(character_id=self.character_id)
         
         if memory_type:
             query = query.filter_by(memory_type=memory_type)
@@ -84,7 +84,7 @@ class MemoryManager:
     def promote_to_long_term(self, memory_id: int) -> bool:
         """Promote a memory to long-term storage"""
         memory = Memory.query.get(memory_id)
-        if memory and memory.agent_id == self.agent_id:
+        if memory and memory.character_id == self.character_id:
             memory.memory_type = 'long_term'
             memory.expires_at = None  # Long-term memories don't expire
             db.session.commit()
@@ -94,7 +94,7 @@ class MemoryManager:
     def delete_memory(self, memory_id: int) -> bool:
         """Delete a specific memory"""
         memory = Memory.query.get(memory_id)
-        if memory and memory.agent_id == self.agent_id:
+        if memory and memory.character_id == self.character_id:
             db.session.delete(memory)
             db.session.commit()
             return True
@@ -103,7 +103,7 @@ class MemoryManager:
     def cleanup_expired_memories(self):
         """Remove expired memories"""
         expired_memories = Memory.query.filter(
-            Memory.agent_id == self.agent_id,
+            Memory.character_id == self.character_id,
             Memory.expires_at < datetime.utcnow()
         ).all()
         
@@ -116,7 +116,7 @@ class MemoryManager:
     def _cleanup_short_term_memories(self):
         """Keep only the most recent short-term memories within the limit"""
         short_term_memories = Memory.query.filter_by(
-            agent_id=self.agent_id,
+            character_id=self.character_id,
             memory_type='short_term'
         ).order_by(Memory.created_at.desc()).all()
         
@@ -136,12 +136,12 @@ class MemoryManager:
     def get_memory_summary(self) -> Dict[str, Any]:
         """Get a summary of the agent's memory"""
         short_term_count = Memory.query.filter_by(
-            agent_id=self.agent_id,
+            character_id=self.character_id,
             memory_type='short_term'
         ).count()
         
         long_term_count = Memory.query.filter_by(
-            agent_id=self.agent_id,
+            character_id=self.character_id,
             memory_type='long_term'
         ).count()
         
@@ -154,19 +154,19 @@ class MemoryManager:
     def _check_for_summarization(self):
         """Check if short-term memories need summarization"""
         short_term_count = Memory.query.filter_by(
-            agent_id=self.agent_id,
+            character_id=self.character_id,
             memory_type='short_term'
         ).count()
         
         if short_term_count >= self.summarization_threshold:
-            print(f"[MEMORY] Agent {self.agent_id}: Triggering memory summarization ({short_term_count} memories)")
+            print(f"[MEMORY] Agent {self.character_id}: Triggering memory summarization ({short_term_count} memories)")
             self._summarize_memories()
     
     def _summarize_memories(self):
         """Summarize old short-term memories into condensed long-term memories"""
         # Get oldest 20 short-term memories for summarization
         old_memories = Memory.query.filter_by(
-            agent_id=self.agent_id,
+            character_id=self.character_id,
             memory_type='short_term'
         ).order_by(Memory.created_at.asc()).limit(20).all()
         
@@ -192,12 +192,12 @@ class MemoryManager:
             db.session.delete(memory)
         
         db.session.commit()
-        print(f"[MEMORY] Agent {self.agent_id}: Summarized {len(old_memories)} memories into long-term storage")
+        print(f"[MEMORY] Agent {self.character_id}: Summarized {len(old_memories)} memories into long-term storage")
     
     def _cleanup_long_term_memories(self):
         """Keep only important long-term memories within limit"""
         long_term_memories = Memory.query.filter_by(
-            agent_id=self.agent_id,
+            character_id=self.character_id,
             memory_type='long_term'
         ).order_by(Memory.importance_score.desc(), Memory.created_at.desc()).all()
         
@@ -207,12 +207,12 @@ class MemoryManager:
             for memory in to_delete:
                 db.session.delete(memory)
             db.session.commit()
-            print(f"[MEMORY] Agent {self.agent_id}: Cleaned up {len(to_delete)} old long-term memories")
+            print(f"[MEMORY] Agent {self.character_id}: Cleaned up {len(to_delete)} old long-term memories")
     
     def get_conversation_context(self, limit: int = 10) -> str:
         """Get recent conversation context for better awareness"""
         recent_conversations = Memory.query.filter(
-            Memory.agent_id == self.agent_id,
+            Memory.character_id == self.character_id,
             (Memory.content.like('%communicated%') | Memory.content.like('%said%'))
         ).order_by(Memory.created_at.desc()).limit(limit).all()
         
