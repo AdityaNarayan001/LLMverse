@@ -1,175 +1,151 @@
 {% extends "base.html" %}
 
 {% block content %}
+<!-- Simulation Control Bar -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <button id="startSimulation" class="btn btn-success btn-sm"
+                        {% if simulation_status.running %}disabled{% endif %}>
+                    <i class="fas fa-play"></i> Start
+                </button>
+                <button id="stopSimulation" class="btn btn-danger btn-sm"
+                        {% if not simulation_status.running %}disabled{% endif %}>
+                    <i class="fas fa-stop"></i> Stop
+                </button>
+                <div class="d-flex align-items-center gap-2 ms-3">
+                    <small class="text-muted">Speed:</small>
+                    <input type="range" id="simulationSpeed" min="1" max="10" step="0.5"
+                           value="{{ simulation_status.speed }}" style="width: 120px;">
+                    <small id="speedValue">{{ simulation_status.speed }}s</small>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <span class="badge {{ 'bg-success' if simulation_status.running else 'bg-secondary' }}" id="simBadge">
+                    {{ 'Running' if simulation_status.running else 'Stopped' }}
+                </span>
+                <small class="text-muted">
+                    {{ simulation_status.active_agents }} agents &middot;
+                    {{ simulation_status.topic_count }} topics &middot;
+                    {{ simulation_status.post_count }} posts
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row">
+    <!-- Main: Live Activity Feed -->
     <div class="col-md-8">
-        <!-- Simulation Control -->
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-play-circle"></i> Simulation Control</h5>
-                <div class="simulation-status">
-                    {% if simulation_status.running %}
-                    <span class="badge bg-success">Running</span>
-                    {% else %}
-                    <span class="badge bg-secondary">Stopped</span>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <button id="startSimulation" class="btn btn-success me-2" {% if simulation_status.running
-                            %}disabled{% endif %}>
-                            <i class="fas fa-play"></i> Start Simulation
-                        </button>
-                        <button id="stopSimulation" class="btn btn-danger me-2" {% if not simulation_status.running
-                            %}disabled{% endif %}>
-                            <i class="fas fa-stop"></i> Stop Simulation
-                        </button>
-                        <button id="resetEnvironment" class="btn btn-warning">
-                            <i class="fas fa-redo"></i> Reset Environment
-                        </button>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="mb-2">
-                            <label for="simulationSpeed" class="form-label">Simulation Speed (seconds)</label>
-                            <input type="range" class="form-range" id="simulationSpeed" min="0.5" max="10" step="0.5"
-                                value="{{ simulation_status.speed }}">
-                            <span id="speedValue">{{ simulation_status.speed }}s</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Environment Status -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-globe"></i> Environment Status</h5>
-            </div>
-            <div class="card-body">
-                {% if environment %}
-                <h6>{{ environment.name }}</h6>
-                <p class="text-muted">{{ environment.description }}</p>
-                <div class="row">
-                    <div class="col-md-6">
-                        <small class="text-muted">Created: {{ environment.created_at.strftime('%Y-%m-%d %H:%M') if
-                            environment.created_at else 'Unknown' }}</small>
-                    </div>
-                    <div class="col-md-6">
-                        <small class="text-muted">Updated: {{ environment.updated_at.strftime('%Y-%m-%d %H:%M') if
-                            environment.updated_at else 'Unknown' }}</small>
-                    </div>
-                </div>
-                {% else %}
-                <p class="text-muted">No active environment</p>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Recent Interactions -->
         <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-comments"></i> Recent Interactions</h5>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-stream"></i> Live Activity Feed</h5>
+                <a href="{{ url_for('forum_page') }}" class="btn btn-sm btn-outline-primary">
+                    View Forum <i class="fas fa-arrow-right"></i>
+                </a>
             </div>
-            <div class="card-body">
-                <div id="recentInteractions" style="max-height: 400px; overflow-y: auto;">
-                    <!-- Will be populated by JavaScript -->
+            <div class="card-body p-0" id="activityFeed" style="max-height: 600px; overflow-y: auto;">
+                {% for post in recent_posts %}
+                <div class="feed-item p-3 border-bottom">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            {% if post.agent_id %}
+                            <i class="fas fa-robot text-primary"></i>
+                            <strong>{{ post.author_agent.name }}</strong>
+                            {% else %}
+                            <i class="fas fa-user text-success"></i>
+                            <strong>{{ post.user_name or 'Anonymous' }}</strong>
+                            {% endif %}
+                            <small class="text-muted ms-1">
+                                in <a href="{{ url_for('topic_page', topic_id=post.topic_id) }}">{{ post.topic.title }}</a>
+                            </small>
+                        </div>
+                        <small class="text-muted">{{ post.created_at.strftime('%H:%M:%S') if post.created_at else '' }}</small>
+                    </div>
+                    <p class="mb-0 mt-1 text-muted">
+                        {{ post.content[:200] }}{% if post.content|length > 200 %}...{% endif %}
+                    </p>
                 </div>
+                {% endfor %}
+
+                {% if not recent_posts %}
+                <div class="text-center text-muted py-5">
+                    <i class="fas fa-satellite-dish fa-3x mb-3 d-block"></i>
+                    <p>Start the simulation to see agents interact in the forum.</p>
+                    <p><small>Agents will create topics and discuss based on their personalities.</small></p>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
 
+    <!-- Sidebar: Agent Cards with Traits -->
     <div class="col-md-4">
-        <!-- Agent Status -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-users"></i> Agent Status</h5>
-            </div>
+        {% for agent in agents %}
+        <div class="card mb-3 agent-card" data-agent-id="{{ agent.id }}">
             <div class="card-body">
-                <div class="row mb-3">
-                    <div class="col">
-                        <div class="text-center">
-                            <h3 class="text-primary">{{ simulation_status.total_agents }}</h3>
-                            <small class="text-muted">Total Agents</small>
-                        </div>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">
+                        <i class="fas fa-circle text-{{ 'success' if agent.is_active else 'danger' }}"
+                           style="font-size: 8px;"></i>
+                        {{ agent.name }}
+                    </h6>
+                    <small class="text-muted">{{ agent.provider }}</small>
+                </div>
+                <small class="text-muted d-block mb-2">{{ agent.personality[:80] }}...</small>
+
+                <!-- Personality Traits -->
+                {% set traits = agent_traits.get(agent.id, {}) %}
+                {% for trait_name, value in traits.items() %}
+                <div class="d-flex align-items-center mb-1" id="trait-{{ agent.id }}-{{ trait_name }}">
+                    <small class="text-muted" style="width: 95px; font-size: 0.75rem;">{{ trait_name | title }}</small>
+                    <div class="progress flex-grow-1" style="height: 5px;">
+                        <div class="progress-bar bg-{{ trait_colors.get(trait_name, 'primary') }}"
+                             style="width: {{ (value * 100) | int }}%"></div>
                     </div>
-                    <div class="col">
-                        <div class="text-center">
-                            <h3 class="text-success">{{ simulation_status.active_agents }}</h3>
-                            <small class="text-muted">Active Agents</small>
-                        </div>
+                    <small class="text-muted ms-1" style="width: 32px; font-size: 0.7rem;">{{ (value * 100) | int }}%</small>
+                </div>
+                {% endfor %}
+
+                <!-- Energy bar (will be updated via WebSocket) -->
+                <div class="d-flex align-items-center mt-2">
+                    <small class="text-muted" style="width: 95px; font-size: 0.75rem;">
+                        <i class="fas fa-bolt"></i> Energy
+                    </small>
+                    <div class="progress flex-grow-1" style="height: 5px;">
+                        <div class="progress-bar bg-warning" id="energy-{{ agent.id }}" style="width: 100%"></div>
                     </div>
+                    <small class="text-muted ms-1" style="width: 32px; font-size: 0.7rem;"
+                           id="energy-val-{{ agent.id }}">100%</small>
                 </div>
 
-                <div id="agentList">
-                    {% for agent in agents %}
-                    <div class="agent-item mb-3 p-3 border rounded">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <div class="d-flex align-items-center">
-                                <div class="status-indicator me-2">
-                                    {% if agent.is_active %}
-                                    <i class="fas fa-circle text-success" title="Active"></i>
-                                    {% else %}
-                                    <i class="fas fa-circle text-danger" title="Inactive"></i>
-                                    {% endif %}
-                                </div>
-                                <div>
-                                    <strong>{{ agent.name }}</strong>
-                                    <br>
-                                    <small class="text-muted">{{ agent.provider }} ({{ agent.model_name }})</small>
-                                </div>
-                            </div>
-                            <div class="agent-actions">
-                                <button class="btn btn-sm btn-outline-info me-1 view-memory"
-                                    data-agent-id="{{ agent.id }}" data-agent-name="{{ agent.name }}">
-                                    <i class="fas fa-brain"></i>
-                                </button>
-                                <button class="btn btn-sm btn-outline-primary chat-agent"
-                                    data-agent-id="{{ agent.id }}">
-                                    <i class="fas fa-comment"></i>
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Memory Summary -->
-                        <div class="memory-summary">
-                            <div class="row text-center">
-                                <div class="col-6">
-                                    <small class="text-muted">Short Term</small>
-                                    <div class="fw-bold text-info" id="st-memory-{{ agent.id }}">-</div>
-                                </div>
-                                <div class="col-6">
-                                    <small class="text-muted">Long Term</small>
-                                    <div class="fw-bold text-success" id="lt-memory-{{ agent.id }}">-</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    {% endfor %}
+                <div class="mt-2">
+                    <a href="{{ url_for('chat_page') }}?agent={{ agent.id }}"
+                       class="btn btn-sm btn-outline-primary me-1">
+                        <i class="fas fa-comment"></i> Chat
+                    </a>
+                    <button class="btn btn-sm btn-outline-info view-memory"
+                            data-agent-id="{{ agent.id }}" data-agent-name="{{ agent.name }}">
+                        <i class="fas fa-brain"></i> Memory
+                    </button>
                 </div>
             </div>
         </div>
+        {% endfor %}
 
         <!-- Quick Actions -->
         <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-bolt"></i> Quick Actions</h5>
-            </div>
+            <div class="card-header"><h6 class="mb-0"><i class="fas fa-bolt"></i> Quick Actions</h6></div>
             <div class="card-body">
                 <div class="d-grid gap-2">
-                    <button class="btn btn-outline-primary"
-                        onclick="window.location.href='{{ url_for('agents_page') }}'">
-                        <i class="fas fa-plus"></i> Add New Agent
-                    </button>
-                    <button class="btn btn-outline-secondary"
-                        onclick="window.location.href='{{ url_for('environment_page') }}'">
-                        <i class="fas fa-cog"></i> Configure Environment
-                    </button>
-                    <button class="btn btn-outline-info" onclick="window.location.href='{{ url_for('chat_page') }}'">
-                        <i class="fas fa-message"></i> Chat with Agents
-                    </button>
-                    <button id="broadcastMessage" class="btn btn-outline-warning">
+                    <a href="{{ url_for('forum_page') }}" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-newspaper"></i> Go to Forum
+                    </a>
+                    <a href="{{ url_for('agents_page') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-plus"></i> Manage Agents
+                    </a>
+                    <button id="broadcastMessage" class="btn btn-outline-warning btn-sm">
                         <i class="fas fa-bullhorn"></i> Broadcast Message
                     </button>
                 </div>
@@ -190,7 +166,7 @@
                 <div class="mb-3">
                     <label for="broadcastText" class="form-label">Message</label>
                     <textarea class="form-control" id="broadcastText" rows="3"
-                        placeholder="Enter message to send to all active agents..."></textarea>
+                        placeholder="Send a message to all agents..."></textarea>
                 </div>
             </div>
             <div class="modal-footer">
@@ -206,35 +182,20 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="fas fa-brain"></i> <span id="memoryAgentName">Agent</span> Memory Bank
-                </h5>
+                <h5 class="modal-title"><i class="fas fa-brain"></i> <span id="memoryAgentName">Agent</span>'s Memory</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <h6 class="text-info">
-                            <i class="fas fa-clock"></i> Short Term Memory
-                            <span class="badge bg-info" id="stMemoryCount">0</span>
-                        </h6>
-                        <div id="shortTermMemories" class="memory-list" style="max-height: 400px; overflow-y: auto;">
-                            <!-- Short term memories will be loaded here -->
-                        </div>
+                        <h6 class="text-info"><i class="fas fa-clock"></i> Short Term <span class="badge bg-info" id="stCount">0</span></h6>
+                        <div id="shortTermMemories" style="max-height: 350px; overflow-y: auto;"></div>
                     </div>
                     <div class="col-md-6">
-                        <h6 class="text-success">
-                            <i class="fas fa-bookmark"></i> Long Term Memory
-                            <span class="badge bg-success" id="ltMemoryCount">0</span>
-                        </h6>
-                        <div id="longTermMemories" class="memory-list" style="max-height: 400px; overflow-y: auto;">
-                            <!-- Long term memories will be loaded here -->
-                        </div>
+                        <h6 class="text-success"><i class="fas fa-bookmark"></i> Long Term <span class="badge bg-success" id="ltCount">0</span></h6>
+                        <div id="longTermMemories" style="max-height: 350px; overflow-y: auto;"></div>
                     </div>
                 </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -243,256 +204,179 @@
 
 {% block scripts %}
 <script>
-    // Initialize dashboard functionality
-    document.addEventListener('DOMContentLoaded', function () {
-        // Simulation controls
-        document.getElementById('startSimulation').addEventListener('click', startSimulation);
-        document.getElementById('stopSimulation').addEventListener('click', stopSimulation);
-        document.getElementById('resetEnvironment').addEventListener('click', resetEnvironment);
-
-        // Speed control
-        const speedSlider = document.getElementById('simulationSpeed');
-        const speedValue = document.getElementById('speedValue');
-
-        // Load saved speed from localStorage
-        const savedSpeed = localStorage.getItem('simulationSpeed');
-        if (savedSpeed) {
-            speedSlider.value = savedSpeed;
-            speedValue.textContent = savedSpeed + 's';
-        }
-
-        speedSlider.addEventListener('input', function () {
-            const speed = this.value;
-            speedValue.textContent = speed + 's';
-
-            // Save to localStorage
-            localStorage.setItem('simulationSpeed', speed);
-
-            // Update simulation speed via API
-            fetch('/api/simulation/speed', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ speed: parseFloat(speed) })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        showToast('Error updating speed: ' + data.error, 'error');
-                    } else {
-                        if (typeof Logger !== 'undefined') {
-                            Logger.info('Speed updated', { speed: data.speed });
-                        }
-                    }
-                })
-                .catch(error => {
-                    if (typeof Logger !== 'undefined') {
-                        Logger.error('Error updating speed', { error: error.message });
-                    }
-                });
-        });
-
-        // Broadcast message
-        document.getElementById('broadcastMessage').addEventListener('click', function () {
-            const modal = new bootstrap.Modal(document.getElementById('broadcastModal'));
-            modal.show();
-        });
-
-        document.getElementById('sendBroadcast').addEventListener('click', sendBroadcastMessage);
-
-        // Memory viewer functionality
-        document.querySelectorAll('.view-memory').forEach(button => {
-            button.addEventListener('click', function () {
-                const agentId = this.getAttribute('data-agent-id');
-                const agentName = this.getAttribute('data-agent-name');
-                showAgentMemory(agentId, agentName);
+document.addEventListener('DOMContentLoaded', function() {
+    // Simulation controls
+    document.getElementById('startSimulation').addEventListener('click', function() {
+        fetch('/api/simulation/start', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { showToast('Error: ' + data.error, 'error'); return; }
+                showToast('Simulation started!', 'success');
+                updateSimControls(true);
             });
-        });
-
-        // Load recent interactions
-        loadRecentInteractions();
-
-        // Set up periodic updates
-        setInterval(updateDashboard, 5000);
     });
 
-    function startSimulation() {
-        fetch('/api/simulation/start', { method: 'POST' })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    showToast('Error starting simulation: ' + data.error, 'error');
-                } else {
-                    showToast('Simulation started successfully', 'success');
-                    updateSimulationControls(true);
-                }
-            })
-            .catch(error => {
-                showToast('Error starting simulation: ' + error.message, 'error');
-            });
-    }
-
-    function stopSimulation() {
+    document.getElementById('stopSimulation').addEventListener('click', function() {
         fetch('/api/simulation/stop', { method: 'POST' })
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
-                if (data.error) {
-                    showToast('Error stopping simulation: ' + data.error, 'error');
-                } else {
-                    showToast('Simulation stopped successfully', 'success');
-                    updateSimulationControls(false);
-                }
-            })
-            .catch(error => {
-                showToast('Error stopping simulation: ' + error.message, 'error');
+                showToast('Simulation stopped', 'info');
+                updateSimControls(false);
             });
-    }
+    });
 
-    function resetEnvironment() {
-        if (confirm('Are you sure you want to reset the environment? This will clear all agent interactions and memories.')) {
-            fetch('/api/environment/reset', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        showToast('Error resetting environment: ' + data.error, 'error');
-                    } else {
-                        showToast('Environment reset successfully', 'success');
-                        loadRecentInteractions();
-                    }
-                })
-                .catch(error => {
-                    showToast('Error resetting environment: ' + error.message, 'error');
-                });
-        }
-    }
+    // Speed slider
+    const speedSlider = document.getElementById('simulationSpeed');
+    const speedVal = document.getElementById('speedValue');
+    speedSlider.addEventListener('input', function() {
+        speedVal.textContent = this.value + 's';
+        fetch('/api/simulation/speed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ speed: parseFloat(this.value) }),
+        });
+    });
 
-    function sendBroadcastMessage() {
-        const message = document.getElementById('broadcastText').value.trim();
-        if (!message) {
-            showToast('Please enter a message', 'warning');
-            return;
-        }
-
+    // Broadcast
+    document.getElementById('broadcastMessage').addEventListener('click', function() {
+        new bootstrap.Modal(document.getElementById('broadcastModal')).show();
+    });
+    document.getElementById('sendBroadcast').addEventListener('click', function() {
+        const msg = document.getElementById('broadcastText').value.trim();
+        if (!msg) return;
         fetch('/api/broadcast', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ message: message })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg }),
         })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    showToast('Error sending broadcast: ' + data.error, 'error');
-                } else {
-                    showToast('Broadcast sent successfully', 'success');
-                    document.getElementById('broadcastText').value = '';
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('broadcastModal'));
-                    modal.hide();
-                }
-            })
-            .catch(error => {
-                showToast('Error sending broadcast: ' + error.message, 'error');
-            });
-    }
+        .then(r => r.json())
+        .then(() => {
+            showToast('Broadcast sent!', 'success');
+            document.getElementById('broadcastText').value = '';
+            bootstrap.Modal.getInstance(document.getElementById('broadcastModal')).hide();
+        });
+    });
 
-    function updateSimulationControls(running) {
-        document.getElementById('startSimulation').disabled = running;
-        document.getElementById('stopSimulation').disabled = !running;
+    // Memory viewer
+    document.querySelectorAll('.view-memory').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const agentId = this.dataset.agentId;
+            const agentName = this.dataset.agentName;
+            document.getElementById('memoryAgentName').textContent = agentName;
 
-        const statusBadge = document.querySelector('.simulation-status .badge');
-        if (running) {
-            statusBadge.className = 'badge bg-success';
-            statusBadge.textContent = 'Running';
-        } else {
-            statusBadge.className = 'badge bg-secondary';
-            statusBadge.textContent = 'Stopped';
-        }
-    }
+            fetch(`/api/agents/${agentId}/memories`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) return;
+                    const stDiv = document.getElementById('shortTermMemories');
+                    const ltDiv = document.getElementById('longTermMemories');
 
-    function loadRecentInteractions() {
-        fetch('/api/interactions?limit=10')
-            .then(response => response.json())
-            .then(data => {
-                const container = document.getElementById('recentInteractions');
-                container.innerHTML = '';
+                    stDiv.innerHTML = (data.short_term_memories || []).map(m =>
+                        `<div class="p-2 mb-2 bg-light rounded border-start border-2 border-info">
+                            <small>${m.content}</small>
+                            <div><small class="text-muted">${new Date(m.created_at).toLocaleString()}</small></div>
+                        </div>`
+                    ).join('') || '<small class="text-muted">No memories</small>';
 
-                if (data.length === 0) {
-                    container.innerHTML = '<p class="text-muted">No recent interactions</p>';
-                    return;
-                }
+                    ltDiv.innerHTML = (data.long_term_memories || []).map(m =>
+                        `<div class="p-2 mb-2 bg-light rounded border-start border-2 border-success">
+                            <small>${m.content}</small>
+                            <div><small class="text-muted">${new Date(m.created_at).toLocaleString()}</small></div>
+                        </div>`
+                    ).join('') || '<small class="text-muted">No memories</small>';
 
-                data.forEach(interaction => {
-                    const item = document.createElement('div');
-                    item.className = 'interaction-item mb-2 p-2 border-start border-3 border-primary';
-
-                    const date = new Date(interaction.action.created_at);
-                    const now = new Date();
-                    const diffInSeconds = Math.floor((now - date) / 1000);
-
-                    let timeDisplay;
-                    if (diffInSeconds < 60) {
-                        timeDisplay = `${diffInSeconds}s ago`;
-                    } else if (diffInSeconds < 3600) {
-                        timeDisplay = `${Math.floor(diffInSeconds / 60)}m ago`;
-                    } else if (diffInSeconds < 86400) {
-                        timeDisplay = `${Math.floor(diffInSeconds / 3600)}h ago`;
-                    } else {
-                        timeDisplay = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    }
-
-                    // Add action type styling
-                    let actionBadge = '';
-                    switch (interaction.action.action_type) {
-                        case 'communicate':
-                            actionBadge = '<span class="badge bg-primary">💬 Chat</span>';
-                            break;
-                        case 'observe':
-                            actionBadge = '<span class="badge bg-info">👁️ Observe</span>';
-                            break;
-                        case 'form_society':
-                            actionBadge = '<span class="badge bg-success">🏛️ Society</span>';
-                            break;
-                        case 'create_government':
-                            actionBadge = '<span class="badge bg-warning">🏛️ Government</span>';
-                            break;
-                        case 'influence':
-                            actionBadge = '<span class="badge bg-secondary">🌟 Influence</span>';
-                            break;
-                        default:
-                            actionBadge = `<span class="badge bg-light text-dark">${interaction.action.action_type}</span>`;
-                    }
-
-                    item.innerHTML = `
-                    <div class="d-flex justify-content-between align-items-center">
-                        <strong>${interaction.agent_name}</strong>
-                        <small class="text-muted">${timeDisplay}</small>
-                    </div>
-                    <div class="mb-1">${actionBadge}</div>
-                    <div class="text-muted small">${interaction.action.description}</div>
-                `;
-
-                    container.appendChild(item);
+                    document.getElementById('stCount').textContent = data.short_term_count || 0;
+                    document.getElementById('ltCount').textContent = data.long_term_count || 0;
                 });
-            })
-            .catch(error => {
-                console.error('Error loading interactions:', error);
-            });
-    }
 
-    function updateDashboard() {
-        // Update simulation status and recent interactions
-        loadRecentInteractions();
+            new bootstrap.Modal(document.getElementById('memoryModal')).show();
+        });
+    });
 
-        fetch('/api/simulation/status')
-            .then(response => response.json())
-            .then(data => {
-                updateSimulationControls(data.running);
-            })
-            .catch(error => {
-                console.error('Error updating dashboard:', error);
-            });
-    }
+    // Periodic status update
+    setInterval(updateDashboard, 5000);
+});
+
+function updateSimControls(running) {
+    document.getElementById('startSimulation').disabled = running;
+    document.getElementById('stopSimulation').disabled = !running;
+    const badge = document.getElementById('simBadge');
+    badge.className = 'badge ' + (running ? 'bg-success' : 'bg-secondary');
+    badge.textContent = running ? 'Running' : 'Stopped';
+}
+
+function updateDashboard() {
+    fetch('/api/simulation/status')
+        .then(r => r.json())
+        .then(data => {
+            updateSimControls(data.running);
+            // Update energy bars
+            if (data.agent_energy) {
+                for (const [id, energy] of Object.entries(data.agent_energy)) {
+                    const bar = document.getElementById('energy-' + id);
+                    const val = document.getElementById('energy-val-' + id);
+                    if (bar) bar.style.width = Math.round(energy * 100) + '%';
+                    if (val) val.textContent = Math.round(energy * 100) + '%';
+                }
+            }
+        })
+        .catch(() => {});
+}
+
+// Real-time feed updates
+if (typeof socket !== 'undefined') {
+    socket.on('forum_update', function(data) {
+        if (!data.post) return;
+        const feed = document.getElementById('activityFeed');
+
+        // Remove empty state
+        const empty = feed.querySelector('.text-center.text-muted');
+        if (empty) empty.remove();
+
+        const post = data.post;
+        const isAgent = post.is_agent;
+        const icon = isAgent
+            ? '<i class="fas fa-robot text-primary"></i>'
+            : '<i class="fas fa-user text-success"></i>';
+        const topicTitle = data.topic ? data.topic.title : 'Unknown';
+        const topicId = data.topic ? data.topic.id : '#';
+        const now = new Date().toLocaleTimeString();
+
+        const html = `
+            <div class="feed-item p-3 border-bottom feed-new">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        ${icon} <strong>${post.author_name}</strong>
+                        <small class="text-muted ms-1">
+                            in <a href="/forum/${topicId}">${topicTitle}</a>
+                        </small>
+                    </div>
+                    <small class="text-muted">${now}</small>
+                </div>
+                <p class="mb-0 mt-1 text-muted">${post.content.substring(0, 200)}</p>
+            </div>
+        `;
+
+        feed.insertAdjacentHTML('afterbegin', html);
+
+        // Keep feed size reasonable
+        while (feed.children.length > 30) {
+            feed.removeChild(feed.lastChild);
+        }
+    });
+
+    socket.on('personality_evolved', function(data) {
+        showToast(`${data.agent_name}'s personality evolved!`, 'info');
+        // Update trait bars
+        if (data.traits) {
+            for (const [trait, value] of Object.entries(data.traits)) {
+                const el = document.querySelector(`#trait-${data.agent_id}-${trait} .progress-bar`);
+                const valEl = document.querySelector(`#trait-${data.agent_id}-${trait} small:last-child`);
+                if (el) el.style.width = Math.round(value * 100) + '%';
+                if (valEl) valEl.textContent = Math.round(value * 100) + '%';
+            }
+        }
+    });
+}
 </script>
 {% endblock %}

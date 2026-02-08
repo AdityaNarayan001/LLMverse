@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from models import Memory, db
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class MemoryManager:
     """Manages short-term and long-term memory for agents"""
@@ -159,7 +162,7 @@ class MemoryManager:
         ).count()
         
         if short_term_count >= self.summarization_threshold:
-            print(f"[MEMORY] Agent {self.agent_id}: Triggering memory summarization ({short_term_count} memories)")
+            logger.info(f"Triggering memory summarization", extra={'context': {'agent_id': self.agent_id, 'count': short_term_count}})
             self._summarize_memories()
     
     def _summarize_memories(self):
@@ -192,7 +195,7 @@ class MemoryManager:
             db.session.delete(memory)
         
         db.session.commit()
-        print(f"[MEMORY] Agent {self.agent_id}: Summarized {len(old_memories)} memories into long-term storage")
+        logger.info(f"Summarized memories", extra={'context': {'agent_id': self.agent_id, 'count': len(old_memories)}})
     
     def _cleanup_long_term_memories(self):
         """Keep only important long-term memories within limit"""
@@ -207,7 +210,7 @@ class MemoryManager:
             for memory in to_delete:
                 db.session.delete(memory)
             db.session.commit()
-            print(f"[MEMORY] Agent {self.agent_id}: Cleaned up {len(to_delete)} old long-term memories")
+            logger.info(f"Cleaned up long-term memories", extra={'context': {'agent_id': self.agent_id, 'count': len(to_delete)}})
     
     def get_conversation_context(self, limit: int = 10) -> str:
         """Get recent conversation context for better awareness"""

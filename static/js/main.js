@@ -136,9 +136,11 @@ function initializeSocket() {
     });
 
     socket.on('agent_action', function (data) {
-        Logger.debug('Agent action', { agent: data.agent_name });
-        // Handle real-time agent actions
-        showToast(`${data.agent_name} performed an action`, 'info');
+        Logger.debug('Agent action', { agent: data.agent_name, action: data.action });
+        // Show contextual toast for forum actions
+        const preview = data.preview ? `: "${data.preview.substring(0, 60)}..."` : '';
+        const actionLabel = data.action === 'new_topic' ? 'started a topic' : 'posted in forum';
+        showToast(`${data.agent_name} ${actionLabel}${preview}`, 'info');
 
         // Update interactions list if we're on the main page
         if (typeof loadRecentInteractions === 'function') {

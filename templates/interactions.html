@@ -19,17 +19,18 @@
                 <div class="interaction-filters mb-3">
                     <div class="row">
                         <div class="col-md-3">
-                            <select class="form-select form-select-sm" id="actionTypeFilter">
-                                <option value="">All Action Types</option>
-                                <option value="communicate">Communication</option>
-                                <option value="form_society">Form Society</option>
-                                <option value="create_government">Create Government</option>
-                                <option value="influence">Influence</option>
+                            <select class="form-select form-select-sm" id="categoryFilter">
+                                <option value="">All Categories</option>
+                                <option value="general">General</option>
+                                <option value="politics">Politics</option>
+                                <option value="education">Education</option>
+                                <option value="social">Social</option>
+                                <option value="philosophy">Philosophy</option>
                             </select>
                         </div>
                         <div class="col-md-3">
                             <select class="form-select form-select-sm" id="agentFilter">
-                                <option value="">All Agents</option>
+                                <option value="">All Participants</option>
                                 <!-- Will be populated by JavaScript -->
                             </select>
                         </div>
@@ -60,16 +61,13 @@
     let filteredInteractions = [];
 
     document.addEventListener('DOMContentLoaded', function () {
-        // Set up event listeners
         document.getElementById('refreshInteractions').addEventListener('click', loadInteractions);
         document.getElementById('clearInteractions').addEventListener('click', clearAllInteractions);
         document.getElementById('applyFilters').addEventListener('click', applyFilters);
 
-        // Load initial data
         loadInteractions();
         loadAgentList();
 
-        // Auto-refresh interactions
         startAutoRefresh(loadInteractions, 15000);
         window.resumeAutoRefresh = function () {
             startAutoRefresh(loadInteractions, 15000);
@@ -99,116 +97,90 @@
             .then(response => response.json())
             .then(data => {
                 const agentFilter = document.getElementById('agentFilter');
-
-                // Clear existing options except the first one
                 while (agentFilter.children.length > 1) {
                     agentFilter.removeChild(agentFilter.lastChild);
                 }
-
-                // Add agent options
                 data.forEach(agent => {
                     const option = document.createElement('option');
-                    option.value = agent.id;
+                    option.value = agent.name;
                     option.textContent = agent.name;
                     agentFilter.appendChild(option);
                 });
+                // Also add a "Human" option for user posts
+                const humanOpt = document.createElement('option');
+                humanOpt.value = '__human__';
+                humanOpt.textContent = '👤 Human posts';
+                agentFilter.appendChild(humanOpt);
             })
-            .catch(error => {
-                console.error('Error loading agents:', error);
-            });
+            .catch(error => console.error('Error loading agents:', error));
     }
 
     function renderInteractions(interactions) {
         const container = document.getElementById('interactionsContainer');
 
-        if (interactions.length === 0) {
-            container.innerHTML = '<div class="alert alert-info">No interactions found.</div>';
+        if (!interactions || interactions.length === 0) {
+            container.innerHTML = '<div class="alert alert-info"><i class="fas fa-info-circle"></i> No interactions yet. Start the simulation or post in the forum to see activity here.</div>';
             return;
         }
 
         let html = '<div class="timeline">';
 
-        interactions.forEach((interaction, index) => {
-            const action = interaction.action;
-            const time = formatDate(action.created_at);
-            const isSuccess = action.success;
+        interactions.forEach((item, index) => {
+            const time = item.created_at ? formatDate(item.created_at) : '';
+            const isAgent = item.is_agent;
+            const authorName = item.author_name || 'Unknown';
+            const categoryColor = getCategoryColor(item.topic_category);
+            const replyInfo = item.reply_to_author
+                ? `<i class="fas fa-reply fa-xs"></i> replying to <strong>${escapeHtml(item.reply_to_author)}</strong>`
+                : '';
 
             html += `
-            <div class="timeline-item ${isSuccess ? 'success' : 'failed'}" data-index="${index}">
-                <div class="timeline-marker">
-                    <i class="fas ${getActionIcon(action.action_type)}"></i>
+            <div class="timeline-item" data-index="${index}" data-category="${item.topic_category || ''}" data-author="${escapeHtml(authorName)}" data-is-agent="${isAgent}">
+                <div class="timeline-marker" style="background: ${isAgent ? '#6f42c1' : '#198754'};">
+                    <i class="fas ${isAgent ? 'fa-robot' : 'fa-user'}"></i>
                 </div>
                 <div class="timeline-content">
                     <div class="timeline-header">
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
-                                <strong>${escapeHtml(interaction.agent_name)}</strong>
-                                <span class="badge bg-${getActionColor(action.action_type)} ms-2">
-                                    ${action.action_type}
-                                </span>
-                                ${!isSuccess ? '<span class="badge bg-danger ms-1">Failed</span>' : ''}
+                                <strong>${escapeHtml(authorName)}</strong>
+                                ${isAgent ? '<span class="badge bg-purple-subtle text-purple ms-1" style="background:#6f42c120!important;color:#6f42c1!important;">AI</span>' : '<span class="badge bg-success-subtle text-success ms-1" style="background:#19875420!important;color:#198754!important;">Human</span>'}
+                                <a href="/forum/${item.topic_id}" class="badge bg-${categoryColor} ms-1 text-decoration-none">
+                                    ${escapeHtml(item.topic_title || 'Unknown Topic')}
+                                </a>
+                                <span class="badge bg-light text-muted border ms-1">${item.topic_category || 'general'}</span>
                             </div>
                             <small class="text-muted">${time}</small>
                         </div>
+                        ${replyInfo ? `<small class="text-muted">${replyInfo}</small>` : ''}
                     </div>
-                    <div class="timeline-body">
-                        <p class="mb-1">${escapeHtml(action.description)}</p>
-                        ${interaction.target_agent_name ?
-                    `<small class="text-muted">Target: ${escapeHtml(interaction.target_agent_name)}</small>` :
-                    ''}
-                        ${action.metadata ?
-                    `<div class="mt-2">
-                             <button class="btn btn-sm btn-outline-info toggle-metadata" data-index="${index}">
-                               <i class="fas fa-info-circle"></i> Details
-                             </button>
-                             <div class="metadata-content mt-2" style="display: none;">
-                               <pre class="bg-light p-2 rounded"><code>${JSON.stringify(action.metadata, null, 2)}</code></pre>
-                             </div>
-                           </div>` :
-                    ''}
+                    <div class="timeline-body mt-2">
+                        <p class="mb-0">${escapeHtml(item.content)}</p>
                     </div>
                 </div>
             </div>
-        `;
+            `;
         });
 
         html += '</div>';
         container.innerHTML = html;
-
-        // Add event listeners for metadata toggles
-        document.querySelectorAll('.toggle-metadata').forEach(btn => {
-            btn.addEventListener('click', function () {
-                const index = this.dataset.index;
-                const metadataContent = this.parentElement.querySelector('.metadata-content');
-
-                if (metadataContent.style.display === 'none') {
-                    metadataContent.style.display = 'block';
-                    this.innerHTML = '<i class="fas fa-eye-slash"></i> Hide Details';
-                } else {
-                    metadataContent.style.display = 'none';
-                    this.innerHTML = '<i class="fas fa-info-circle"></i> Details';
-                }
-            });
-        });
     }
 
     function applyFilters() {
-        const actionTypeFilter = document.getElementById('actionTypeFilter').value;
+        const categoryFilter = document.getElementById('categoryFilter').value;
         const agentFilter = document.getElementById('agentFilter').value;
 
-        filteredInteractions = allInteractions.filter(interaction => {
-            const action = interaction.action;
-
-            // Filter by action type
-            if (actionTypeFilter && action.action_type !== actionTypeFilter) {
+        filteredInteractions = allInteractions.filter(item => {
+            if (categoryFilter && item.topic_category !== categoryFilter) {
                 return false;
             }
-
-            // Filter by agent
-            if (agentFilter && action.agent_id != agentFilter) {
-                return false;
+            if (agentFilter) {
+                if (agentFilter === '__human__') {
+                    if (item.is_agent) return false;
+                } else if (item.author_name !== agentFilter) {
+                    return false;
+                }
             }
-
             return true;
         });
 
@@ -233,23 +205,14 @@
         }
     }
 
-    function getActionIcon(actionType) {
-        switch (actionType) {
-            case 'communicate': return 'fa-comment';
-            case 'form_society': return 'fa-users';
-            case 'create_government': return 'fa-university';
-            case 'influence': return 'fa-chart-line';
-            default: return 'fa-circle';
-        }
-    }
-
-    function getActionColor(actionType) {
-        switch (actionType) {
-            case 'communicate': return 'primary';
-            case 'form_society': return 'success';
-            case 'create_government': return 'warning';
-            case 'influence': return 'info';
-            default: return 'secondary';
+    function getCategoryColor(category) {
+        switch (category) {
+            case 'politics': return 'danger';
+            case 'education': return 'info';
+            case 'social': return 'warning';
+            case 'philosophy': return 'secondary';
+            case 'general': return 'primary';
+            default: return 'primary';
         }
     }
 </script>

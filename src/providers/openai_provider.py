@@ -58,10 +58,11 @@ class OpenAIProvider(LLMProvider):
         if self.is_azure:
             return [self.azure_deployment] if self.azure_deployment else ["gpt-4o"]
         return [
-            "gpt-3.5-turbo",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4-turbo",
             "gpt-4",
-            "gpt-4-turbo-preview",
-            "gpt-3.5-turbo-16k"
+            "gpt-3.5-turbo",
         ]
     
     def get_provider_name(self) -> str:

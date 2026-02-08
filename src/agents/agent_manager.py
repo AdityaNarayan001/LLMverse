@@ -1,568 +1,719 @@
 import threading
 import time
 import random
+from datetime import datetime
 from typing import Dict, List
-from models import Agent, db
+from models import Agent, ForumTopic, ForumPost, PersonalityTrait, db
 from .llm_agent import LLMAgent
 from src.environment import EnvironmentManager
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+class AgentState:
+    """Runtime state for an agent during simulation (not persisted to DB)"""
+
+    def __init__(self):
+        self.energy = 1.0
+        self.last_action_time = None
+        self.interactions_since_evolution = 0
+
+    def consume_energy(self, amount=0.2):
+        self.energy = max(0, self.energy - amount)
+        self.last_action_time = time.time()
+        self.interactions_since_evolution += 1
+
+    def regenerate(self, sociability=0.5):
+        """Regenerate energy each tick — sociable agents recover faster"""
+        regen_rate = 0.03 + sociability * 0.04  # 0.03 – 0.07 per tick
+        self.energy = min(1.0, self.energy + regen_rate)
+
+
 class AgentManager:
-    """Manages multiple LLM agents and their interactions"""
-    
+    """Manages LLM agents and their forum-based interactions using
+    an interest-driven engagement algorithm instead of round-robin."""
+
     def __init__(self, environment_manager: EnvironmentManager):
         self.environment_manager = environment_manager
         self.agents: Dict[int, LLMAgent] = {}
+        self.agent_states: Dict[int, AgentState] = {}
         self.simulation_running = False
         self.simulation_thread = None
-        self.simulation_speed = 5.0  # seconds between autonomous actions
-        self.current_agent_index = 0  # For round-robin scheduling
-        self.communication_queue = []  # Track who should talk to whom
-        self.last_speaker = None  # Track last speaker to avoid immediate repetition
-    
+        self.simulation_speed = 5.0  # seconds between ticks
+
+    # ─── Agent CRUD ──────────────────────────────────────────────
+
     def load_all_agents(self):
         """Load all agents from the database"""
         logger.info("Loading all agents from database")
         agents_data = Agent.query.all()
         logger.info(f"Found {len(agents_data)} agents in database")
-        
+
         for agent_data in agents_data:
             try:
-                logger.debug(f"Loading agent", extra={'context': {'agent_name': agent_data.name, 'agent_id': agent_data.id}})
                 agent = LLMAgent(agent_data.id, self.environment_manager)
                 self.agents[agent_data.id] = agent
                 logger.info(f"Successfully loaded agent: {agent_data.name}")
             except Exception as e:
                 logger.error(f"Failed to load agent {agent_data.id}: {e}", exc_info=True)
-        
+
         logger.info(f"Total agents loaded: {len(self.agents)}")
-    
-    def create_agent(self, name: str, personality: str, provider: str = 'ollama', 
-                    model_name: str = None) -> LLMAgent:
-        """Create a new agent with default provider being Ollama"""
-        
-        # Set default model based on provider
+
+    def create_agent(self, name: str, personality: str, provider: str = 'ollama',
+                     model_name: str = None) -> LLMAgent:
+        """Create a new agent with personality traits"""
         if model_name is None:
-            if provider == 'ollama':
-                model_name = 'gemma3:270m'  # Default to user's available model
-            elif provider == 'openai':
-                model_name = 'gpt-3.5-turbo'
-            elif provider == 'gemini':
-                model_name = 'gemini-pro'
-            else:
-                model_name = 'gemma3:270m'  # Fallback to Ollama
-        
+            defaults = {
+                'ollama': 'gemma3:270m',
+                'openai': 'gpt-4o',
+                'gemini': 'gemini-2.5-flash-lite',
+            }
+            model_name = defaults.get(provider, 'gemma3:270m')
+
         agent_data = Agent(
             name=name,
             personality=personality,
             provider=provider,
             model_name=model_name,
-            is_active=True
+            is_active=True,
         )
-        
         db.session.add(agent_data)
         db.session.commit()
-        
-        # Create and store the agent instance
+
         agent = LLMAgent(agent_data.id, self.environment_manager)
         self.agents[agent_data.id] = agent
-        
+
+        # Initialize personality traits from description
+        agent.init_default_traits()
+
         return agent
-    
+
     def get_agent(self, agent_id: int) -> LLMAgent:
-        """Get an agent by ID"""
         if agent_id not in self.agents:
-            # Try to load the agent if not in memory
             try:
                 agent = LLMAgent(agent_id, self.environment_manager)
                 self.agents[agent_id] = agent
-            except:
+            except Exception:
                 return None
-        
         return self.agents.get(agent_id)
-    
+
     def get_all_agents(self) -> List[LLMAgent]:
-        """Get all agents"""
         return list(self.agents.values())
-    
+
     def get_active_agents(self) -> List[LLMAgent]:
-        """Get all active agents"""
-        active_agents = []
-        logger.debug(f"Checking {len(self.agents)} agents for active status")
-        
+        active = []
         for agent_id, agent in self.agents.items():
             try:
-                is_active = agent.is_active()
-                logger.debug(f"Agent status check", extra={'context': {'agent': agent.agent_data.name, 'id': agent_id, 'active': is_active}})
-                if is_active:
-                    active_agents.append(agent)
+                if agent.is_active():
+                    active.append(agent)
             except Exception as e:
-                logger.error(f"Error checking if agent {agent_id} is active: {e}")
-        
-        logger.debug(f"Found {len(active_agents)} active agents")
-        return active_agents
-    
+                logger.error(f"Error checking agent {agent_id}: {e}")
+        return active
+
     def update_agent(self, agent_id: int, **kwargs) -> bool:
-        """Update an agent's properties"""
         agent_data = Agent.query.get(agent_id)
         if not agent_data:
             return False
-        
-        # Update database
         for key, value in kwargs.items():
             if hasattr(agent_data, key):
                 setattr(agent_data, key, value)
-        
         db.session.commit()
-        
-        # Reload the agent if it exists in memory
         if agent_id in self.agents:
             try:
                 self.agents[agent_id] = LLMAgent(agent_id, self.environment_manager)
-            except:
+            except Exception:
                 pass
-        
         return True
-    
+
     def delete_agent(self, agent_id: int) -> bool:
-        """Delete an agent"""
         agent_data = Agent.query.get(agent_id)
         if not agent_data:
             return False
-        
-        # Remove from memory
         if agent_id in self.agents:
             del self.agents[agent_id]
-        
-        # Delete from database (cascade will handle related records)
+        if agent_id in self.agent_states:
+            del self.agent_states[agent_id]
+
+        # Clean up related records that don't have cascade delete
+        PersonalityTrait.query.filter_by(agent_id=agent_id).delete()
+        ForumPost.query.filter_by(agent_id=agent_id).update({'agent_id': None})
+        ForumTopic.query.filter_by(started_by_agent_id=agent_id).update({'started_by_agent_id': None})
+
         db.session.delete(agent_data)
         db.session.commit()
-        
         return True
-    
+
+    # ─── Simulation Control ──────────────────────────────────────
+
     def start_simulation(self):
-        """Start autonomous simulation"""
-        logger.info(f"Starting simulation", extra={'context': {'current_state': self.simulation_running}})
+        logger.info("Starting simulation",
+                     extra={'context': {'already_running': self.simulation_running}})
         if self.simulation_running:
-            logger.warning("Simulation already running")
             return
-        
-        logger.info(f"Simulation config", extra={'context': {'total_agents': len(self.agents), 'active_agents': len(self.get_active_agents())}})
-        
         self.simulation_running = True
         self.simulation_thread = threading.Thread(target=self._simulation_loop)
         self.simulation_thread.daemon = True
         self.simulation_thread.start()
         logger.info("Simulation thread started")
-    
+
     def stop_simulation(self):
-        """Stop autonomous simulation"""
         self.simulation_running = False
         if self.simulation_thread:
             self.simulation_thread.join(timeout=5)
-    
-    def _simulation_loop(self):
-        """Main simulation loop for autonomous agent actions with round-robin scheduling"""
-        logger.info("Simulation loop started with round-robin scheduling")
-        loop_count = 0
-        conversation_topics = ["politics", "education", "community", "leadership", "society", "learning"]
-        current_topic_index = 0
-        
-        # Import here to avoid circular imports
-        from app import app
-        
-        while self.simulation_running:
-            try:
-                loop_count += 1
-                logger.debug(f"Simulation iteration {loop_count}")
-                
-                # Use application context for database operations
-                with app.app_context():
-                    active_agents = self.get_active_agents()
-                    logger.debug(f"Active agents: {len(active_agents)}")
-                    
-                    if len(active_agents) < 2:
-                        logger.warning("Need at least 2 agents for conversation")
-                        time.sleep(self.simulation_speed)
-                        continue
-                    
-                    # Round-robin scheduling: pick next agent in rotation
-                    if self.current_agent_index >= len(active_agents):
-                        self.current_agent_index = 0
-                        current_topic_index = (current_topic_index + 1) % len(conversation_topics)
-                        logger.info(f"Topic switch: {conversation_topics[current_topic_index]}")
-                    
-                    current_agent = active_agents[self.current_agent_index]
-                    logger.info(f"Turn {loop_count}", extra={'context': {'agent': current_agent.agent_data.name}})
-                    
-                    # Find a target agent (prefer someone who hasn't been the last speaker)
-                    other_agents = [a for a in active_agents if a.agent_id != current_agent.agent_id]
-                    
-                    if self.last_speaker:
-                        # Try to find someone other than the last speaker
-                        non_last_speakers = [a for a in other_agents if a.agent_id != self.last_speaker]
-                        if non_last_speakers:
-                            other_agents = non_last_speakers
-                    
-                    if other_agents:
-                        target_agent = other_agents[loop_count % len(other_agents)]
-                        current_topic = conversation_topics[current_topic_index]
-                        
-                        # Generate a focused conversation based on current topic
-                        message = self._generate_topic_focused_message(
-                            current_agent, target_agent, current_topic
-                        )
-                        
-                        logger.info(f"Conversation", extra={'context': {'from': current_agent.agent_data.name, 'to': target_agent.agent_data.name, 'topic': current_topic}})
-                        logger.debug(f"Message preview: {message[:60]}...")
-                        
-                        # Send the message
-                        current_agent.communicate_with_agent(target_agent.agent_id, message, self.simulation_speed)
-                        
-                        # Store memory about the interaction
-                        memory_status = current_agent.memory_manager.get_memory_summary()
-                        
-                        # Emit the action to the UI
-                        try:
-                            from app import socketio
-                            socketio.emit('agent_action', {
-                                'agent_id': current_agent.agent_id,
-                                'agent_name': current_agent.agent_data.name,
-                                'action': f"Said to {target_agent.agent_data.name}: {message[:50]}...",
-                                'timestamp': time.time(),
-                                'memory_count': memory_status['total_count']
-                            })
-                        except Exception as ws_error:
-                            logger.warning(f"WebSocket emission failed: {ws_error}")
-                        
-                        # Generate a response from the target agent (50% chance to avoid too much chatter)
-                        if random.random() < 0.7:  # 70% chance to respond
-                            response = self._generate_response_to_message(
-                                target_agent, current_agent, message, current_topic
-                            )
-                            if response:
-                                logger.info(f"Response", extra={'context': {'from': target_agent.agent_data.name, 'preview': response[:50]}})
-                                
-                                # Emit the response
-                                try:
-                                    socketio.emit('agent_action', {
-                                        'agent_id': target_agent.agent_id,
-                                        'agent_name': target_agent.agent_data.name,
-                                        'action': f"Replied to {current_agent.agent_data.name}: {response[:50]}...",
-                                        'timestamp': time.time(),
-                                        'memory_count': target_agent.memory_manager.get_memory_summary()['total_count']
-                                    })
-                                except Exception as ws_error:
-                                    logger.warning(f"WebSocket emission failed for response: {ws_error}")
-                        
-                        self.last_speaker = current_agent.agent_id
-                    
-                    # Move to next agent in round-robin
-                    self.current_agent_index = (self.current_agent_index + 1) % len(active_agents)
-                
-                # Wait before next round of actions
-                logger.debug(f"Waiting {self.simulation_speed}s before next turn")
-                time.sleep(self.simulation_speed)
-                
-            except Exception as e:
-                logger.error(f"Error in simulation loop: {e}", exc_info=True)
-                time.sleep(self.simulation_speed)
-        
-        logger.info("Simulation loop ended")
-    
-    def _get_agent_by_name(self, name: str) -> LLMAgent:
-        """Get an agent by name"""
-        for agent in self.agents.values():
-            if agent.agent_data and agent.agent_data.name == name:
-                return agent
-        return None
-    
-    def _generate_topic_focused_message(self, sender: LLMAgent, target: LLMAgent, topic: str) -> str:
-        """Generate a focused message based on the current conversation topic"""
-        sender_personality = sender.agent_data.personality.lower()
-        target_name = target.agent_data.name
-        
-        # Topic-specific conversation starters
-        if topic == "politics":
-            if "politics" in sender_personality or "governance" in sender_personality:
-                messages = [
-                    f"Hey {target_name}, I've been thinking about our community structure. What's your take on how decisions should be made?",
-                    f"{target_name}, do you think we need better organization around here? I have some ideas.",
-                    f"Hi {target_name}, what's your perspective on leadership styles? I'm curious about your thoughts.",
-                    f"{target_name}, I believe collaboration is key to good governance. How do you see it?"
-                ]
-            else:
-                messages = [
-                    f"Hi {target_name}, what do you think about how things are organized around here?",
-                    f"{target_name}, I'm curious about your views on community decisions - any thoughts?",
-                    f"Hey {target_name}, do you have opinions about how we should work together?",
-                    f"{target_name}, what's your take on making our community better?"
-                ]
-        
-        elif topic == "education":
-            if "teacher" in sender_personality or "education" in sender_personality:
-                messages = [
-                    f"Hello {target_name}, I love sharing knowledge! What's something you'd like to learn about?",
-                    f"{target_name}, I think we can all teach each other. What's your area of expertise?",
-                    f"Hi {target_name}, what's the most important lesson you've learned recently?",
-                    f"{target_name}, I believe education shapes everything. What's your learning philosophy?"
-                ]
-            else:
-                messages = [
-                    f"Hi {target_name}, what's something interesting you've learned lately?",
-                    f"{target_name}, I'm always curious about different perspectives. What's yours on learning?",
-                    f"Hey {target_name}, what knowledge do you think is most valuable?",
-                    f"{target_name}, what would you want to teach others if you could?"
-                ]
-        
-        elif topic == "community":
-            if "social" in sender_personality or "gossip" in sender_personality:
-                messages = [
-                    f"Hey {target_name}! I love how we're all connecting here. What do you think makes a good community?",
-                    f"{target_name}, I'm always interested in how people get along. What's your secret?",
-                    f"Hi {target_name}! What do you think brings people together best?",
-                    f"{target_name}, community spirit is so important! How do you contribute to it?"
-                ]
-            else:
-                messages = [
-                    f"Hi {target_name}, what makes you feel most connected to others here?",
-                    f"{target_name}, how do you think we can build stronger relationships?",
-                    f"Hey {target_name}, what's your ideal vision for our community?",
-                    f"{target_name}, what role do you see yourself playing in our group?"
-                ]
-        
-        elif topic == "leadership":
-            messages = [
-                f"Hi {target_name}, what qualities do you think make a good leader?",
-                f"{target_name}, I'm curious about your leadership style - how do you motivate others?",
-                f"Hey {target_name}, what's your take on shared vs individual leadership?",
-                f"{target_name}, how do you think leaders should handle disagreements?"
-            ]
-        
-        elif topic == "society":
-            messages = [
-                f"Hi {target_name}, what kind of society do you think we're building here?",
-                f"{target_name}, what values should guide how we live together?",
-                f"Hey {target_name}, how do you envision our ideal social structure?",
-                f"{target_name}, what traditions or customs should we develop?"
-            ]
-        
-        else:  # learning
-            messages = [
-                f"Hi {target_name}, what's the most valuable thing you've discovered about yourself lately?",
-                f"{target_name}, I'm always growing and changing. How about you?",
-                f"Hey {target_name}, what challenges have helped you learn the most?",
-                f"{target_name}, what wisdom would you share with others?"
-            ]
-        
-        # Get recent conversation history to avoid repetition
-        recent_memories = sender.memory_manager.get_memories(limit=10)
-        recent_with_target = [m for m in recent_memories if target_name in m.content]
-        
-        # Choose message based on history to avoid repetition
-        hash_seed = len(recent_with_target) + hash(target_name + topic)
-        return messages[hash_seed % len(messages)]
-    
-    def _generate_response_to_message(self, responder: LLMAgent, sender: LLMAgent, 
-                                    original_message: str, topic: str) -> str:
-        """Generate a natural response to a message within the current topic"""
-        try:
-            responder_personality = responder.agent_data.personality.lower()
-            sender_name = sender.agent_data.name
-            
-            # Create a contextual response prompt
-            response_prompt = f"""{sender_name} just said to you: "{original_message}"
-            
-The conversation topic is {topic}. Respond naturally as {responder.agent_data.name} would, staying on topic but being conversational."""
-            
-            response = responder.generate_response(response_prompt)
-            
-            # Clean up any meta-commentary
-            if "I should respond" in response or "I will say" in response or "My response" in response:
-                # Generate a personality-based fallback
-                if "gossip" in responder_personality or "social" in responder_personality:
-                    fallbacks = [
-                        f"That's really interesting, {sender_name}! I love hearing different perspectives.",
-                        f"Oh {sender_name}, you always have such thoughtful ideas!",
-                        f"Thanks for sharing that, {sender_name}. It gives me a lot to think about!",
-                        f"I appreciate you bringing that up, {sender_name}. What else are you thinking about?"
-                    ]
-                elif "politics" in responder_personality or "governance" in responder_personality:
-                    fallbacks = [
-                        f"You raise excellent points, {sender_name}. I think we could build on that idea.",
-                        f"That's a valuable perspective, {sender_name}. How do you think we could implement it?",
-                        f"I appreciate your thoughtful approach, {sender_name}. Collaboration is key.",
-                        f"Great insight, {sender_name}. I believe we can work together on this."
-                    ]
-                elif "teacher" in responder_personality or "education" in responder_personality:
-                    fallbacks = [
-                        f"What a wonderful learning opportunity, {sender_name}! You've given me new insights.",
-                        f"Thank you for sharing that, {sender_name}. I love learning from others!",
-                        f"That's fascinating, {sender_name}! How did you come to that conclusion?",
-                        f"I'm always excited to explore new ideas, {sender_name}. Tell me more!"
-                    ]
-                else:
-                    fallbacks = [
-                        f"That's really thoughtful, {sender_name}. I appreciate you sharing that.",
-                        f"Thanks for the insight, {sender_name}. It's given me something to consider.",
-                        f"I find your perspective interesting, {sender_name}. Thanks for the conversation!",
-                        f"Good point, {sender_name}. I enjoy our discussions."
-                    ]
-                
-                response = random.choice(fallbacks)
-            
-            # Record this as a communication back to the sender
-            responder.communicate_with_agent(sender.agent_id, response, 5.0)
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"Error generating response: {e}")
-            return f"Thanks for sharing that, {sender.agent_data.name}!"
-    
-    def _generate_response_to_communication(self, responding_agent: LLMAgent, 
-                                          original_agent: LLMAgent, 
-                                          original_message: str) -> str:
-        """Generate a response from one agent to another's communication"""
-        try:
-            # Extract the actual message content from the action result
-            import re
-            message_match = re.search(r": (.+)$", original_message)
-            actual_message = message_match.group(1) if message_match else "Hello"
-            
-            # Create a natural response prompt
-            response_prompt = f"""{original_agent.agent_data.name} just said to you: "{actual_message}"
-            
-Please respond naturally to {original_agent.agent_data.name}."""
-            
-            response = responding_agent.generate_response(response_prompt)
-            
-            # Record this as a communication back to the original agent
-            responding_agent.communicate_with_agent(
-                original_agent.agent_id, 
-                response, 
-                simulation_speed=self.simulation_speed
-            )
-            
-            # Emit the response to the UI
-            try:
-                from app import socketio
-                socketio.emit('agent_action', {
-                    'agent_id': responding_agent.agent_id,
-                    'agent_name': responding_agent.agent_data.name,
-                    'action': f"Responded to {original_agent.agent_data.name}: {response[:50]}...",
-                    'timestamp': time.time(),
-                    'memory_count': responding_agent.memory_manager.get_memory_summary()['total_count']
-                })
-            except Exception as ws_error:
-                logger.warning(f"WebSocket emission failed for response: {ws_error}")
-            
-            return f"Responded to {original_agent.agent_data.name}: {response}"
-            
-        except Exception as e:
-            logger.error(f"Error generating response communication: {e}")
-            return None
-    
+
     def set_simulation_speed(self, speed: float):
-        """Set the simulation speed (seconds between action rounds)"""
-        self.simulation_speed = max(0.1, speed)  # Minimum 0.1 seconds
-    
+        self.simulation_speed = max(0.5, speed)
+
     def get_simulation_status(self) -> Dict:
-        """Get current simulation status"""
-        active_agents = self.get_active_agents()
-        
+        active = self.get_active_agents()
+        topic_count = 0
+        post_count = 0
+        try:
+            topic_count = ForumTopic.query.count()
+            post_count = ForumPost.query.count()
+        except Exception:
+            pass
+
         return {
             'running': self.simulation_running,
             'speed': self.simulation_speed,
             'total_agents': len(self.agents),
-            'active_agents': len(active_agents),
-            'agent_statuses': [agent.get_status() for agent in active_agents]
+            'active_agents': len(active),
+            'topic_count': topic_count,
+            'post_count': post_count,
+            'agent_statuses': [a.get_status() for a in active],
+            'agent_energy': {
+                aid: round(self.agent_states[aid].energy, 2)
+                for aid in self.agent_states
+            },
         }
-    
-    def broadcast_message(self, message: str, sender_id: int = None) -> List[str]:
+
+    # ─── Interest-Driven Simulation Loop ─────────────────────────
+
+    def _get_agent_state(self, agent_id: int) -> AgentState:
+        if agent_id not in self.agent_states:
+            self.agent_states[agent_id] = AgentState()
+        return self.agent_states[agent_id]
+
+    def _simulation_loop(self):
+        """Interest-driven simulation: agents engage in forum topics based on
+        personality relevance, energy, social traits, and topic freshness."""
+        from app import app, socketio
+
+        logger.info("Simulation started — interest-driven engagement")
+        tick = 0
+
+        while self.simulation_running:
+            try:
+                tick += 1
+                with app.app_context():
+                    active_agents = self.get_active_agents()
+                    if len(active_agents) < 2:
+                        logger.warning("Need at least 2 active agents")
+                        time.sleep(self.simulation_speed)
+                        continue
+
+                    # 1. Regenerate energy for all agents
+                    for agent in active_agents:
+                        state = self._get_agent_state(agent.agent_id)
+                        state.regenerate(agent.get_trait_value('sociability'))
+
+                    # 2. Get active forum topics
+                    topics = (ForumTopic.query
+                              .filter_by(is_active=True)
+                              .order_by(ForumTopic.last_activity_at.desc())
+                              .limit(10).all())
+
+                    # 3. Score all possible actions for each agent
+                    candidates = []
+                    for agent in active_agents:
+                        state = self._get_agent_state(agent.agent_id)
+                        if state.energy < 0.15:
+                            continue  # Too tired
+
+                        # Best reply score
+                        best_score, best_topic = 0, None
+                        for topic in topics:
+                            score = self._score_reply(agent, topic, state)
+                            if score > best_score:
+                                best_score = score
+                                best_topic = topic
+
+                        # New topic score
+                        new_score = self._score_new_topic(agent, state, topics)
+
+                        if best_score > new_score and best_score > 0.25:
+                            candidates.append((agent, 'reply', best_topic, best_score))
+                        elif new_score > 0.30:
+                            candidates.append((agent, 'new_topic', None, new_score))
+
+                    # 4. Pick best action (weighted-random from top 3)
+                    if candidates:
+                        candidates.sort(key=lambda x: x[3], reverse=True)
+                        top = candidates[:min(3, len(candidates))]
+                        weights = [c[3] ** 2 for c in top]
+                        chosen = random.choices(top, weights=weights, k=1)[0]
+                        agent, action_type, topic, score = chosen
+                        state = self._get_agent_state(agent.agent_id)
+
+                        result = None
+                        if action_type == 'new_topic':
+                            result = self._agent_creates_topic(agent)
+                        elif action_type == 'reply':
+                            result = self._agent_replies(agent, topic)
+
+                        if result:
+                            state.consume_energy(0.2)
+
+                            # Emit to frontend
+                            try:
+                                socketio.emit('forum_update', result)
+                                socketio.emit('agent_action', {
+                                    'agent_id': agent.agent_id,
+                                    'agent_name': agent.agent_data.name,
+                                    'action': result.get('type', 'unknown'),
+                                    'preview': result.get('post', {}).get('content', '')[:100],
+                                    'timestamp': time.time(),
+                                    'energy': round(state.energy, 2),
+                                })
+                            except Exception as e:
+                                logger.warning(f"WebSocket emit failed: {e}")
+
+                            # Personality evolution every 5 interactions
+                            if state.interactions_since_evolution >= 5:
+                                try:
+                                    agent.evolve_personality()
+                                    state.interactions_since_evolution = 0
+                                    socketio.emit('personality_evolved', {
+                                        'agent_id': agent.agent_id,
+                                        'agent_name': agent.agent_data.name,
+                                        'traits': agent.get_all_traits(),
+                                    })
+                                except Exception as e:
+                                    logger.error(f"Evolution error: {e}")
+                    else:
+                        logger.debug(f"Tick {tick}: no agent motivated enough to act")
+
+                time.sleep(self.simulation_speed)
+
+            except Exception as e:
+                logger.error(f"Simulation error: {e}", exc_info=True)
+                time.sleep(self.simulation_speed)
+
+        logger.info("Simulation loop ended")
+
+    # ─── Engagement Scoring ──────────────────────────────────────
+
+    def _score_reply(self, agent, topic, state) -> float:
+        """Score how interested an agent is in replying to a topic.
+        Combines personality–topic relevance, mentions, social traits,
+        recency, and a self-reply penalty."""
+        score = 0.0
+        personality = agent.agent_data.personality.lower()
+
+        # 1. Keyword overlap between topic title and personality
+        title_words = set(topic.title.lower().split())
+        personality_words = set(w for w in personality.split() if len(w) > 3)
+        overlap = len(title_words & personality_words)
+        score += min(overlap * 0.1, 0.25)
+
+        # 2. Category alignment
+        cat_map = {
+            'politics':   ['politics', 'governance', 'leader', 'government', 'policy', 'democracy'],
+            'education':  ['teacher', 'education', 'learn', 'knowledge', 'school', 'teach', 'study'],
+            'social':     ['social', 'gossip', 'chat', 'friend', 'community', 'people', 'connect'],
+            'philosophy': ['think', 'philosophy', 'meaning', 'reflect', 'moral', 'ethics', 'wisdom'],
+        }
+        for cat, keywords in cat_map.items():
+            if topic.category == cat and any(kw in personality for kw in keywords):
+                score += 0.2
+                break
+
+        # 3. Was this agent mentioned in recent posts?
+        recent_posts = (ForumPost.query
+                        .filter_by(topic_id=topic.id)
+                        .order_by(ForumPost.created_at.desc())
+                        .limit(5).all())
+        name_lower = agent.agent_data.name.lower()
+        for post in recent_posts:
+            if name_lower in post.content.lower() and post.agent_id != agent.agent_id:
+                score += 0.35
+                break
+
+        # 4. Bonus for user posts (agents should respond to humans!)
+        for post in recent_posts:
+            if post.user_name and post.agent_id is None:
+                score += 0.25
+                break
+
+        # 5. Personality traits
+        score += agent.get_trait_value('sociability') * 0.12
+        score += agent.get_trait_value('curiosity') * 0.08
+
+        # 6. Topic recency (decays over 5 minutes)
+        if topic.last_activity_at:
+            age = (datetime.utcnow() - topic.last_activity_at).total_seconds()
+            recency = max(0, 1 - age / 300)
+            score *= (0.4 + 0.6 * recency)
+
+        # 7. Heavy penalty if agent was last poster (avoid monologue)
+        if recent_posts and recent_posts[0].agent_id == agent.agent_id:
+            score *= 0.1
+
+        # 8. Energy factor
+        score *= state.energy
+
+        return score
+
+    def _score_new_topic(self, agent, state, existing_topics) -> float:
+        """Score how much an agent wants to start a brand-new topic."""
+        score = 0.0
+
+        # Fewer topics → more motivation
+        if len(existing_topics) == 0:
+            score += 0.50
+        elif len(existing_topics) < 3:
+            score += 0.25
+        else:
+            score += 0.08
+
+        # Assertiveness + openness drive topic creation
+        score += agent.get_trait_value('assertiveness') * 0.20
+        score += agent.get_trait_value('openness') * 0.10
+
+        # Energy
+        score *= state.energy
+
+        # Cooldown — don't spam topics
+        recent = (ForumTopic.query
+                  .filter_by(started_by_agent_id=agent.agent_id)
+                  .order_by(ForumTopic.created_at.desc())
+                  .first())
+        if recent:
+            age = (datetime.utcnow() - recent.created_at).total_seconds()
+            if age < 120:
+                score *= 0.05
+            elif age < 300:
+                score *= 0.3
+
+        return score
+
+    # ─── Agent Forum Actions ─────────────────────────────────────
+
+    def _agent_creates_topic(self, agent) -> dict:
+        """Have an agent start a new forum discussion via LLM"""
+        category = self._pick_category(agent)
+
+        recent_memories = agent.memory_manager.get_memories(limit=3)
+        mem_ctx = ("\n".join([f"- {m.content[:60]}" for m in recent_memories])
+                   if recent_memories else "No recent thoughts.")
+
+        # Seed topics to inspire variety
+        seed_ideas = {
+            'politics': ['leadership styles', 'fairness in decision-making', 'community rules', 'power and accountability', 'voting systems'],
+            'education': ['best way to learn', 'teaching vs. mentoring', 'curiosity in children', 'knowledge sharing', 'learning from failure'],
+            'social': ['making new friends', 'handling disagreements', 'trust in relationships', 'community traditions', 'loneliness in crowds'],
+            'philosophy': ['meaning of happiness', 'free will', 'ethics of progress', 'what makes us human', 'the value of doubt'],
+            'general': ['something surprising today', 'unpopular opinions', 'what would you change', 'daily routines', 'hidden talents'],
+        }
+        seed = random.choice(seed_ideas.get(category, seed_ideas['general']))
+
+        prompt = (
+            f"You are {agent.agent_data.name}. {agent.agent_data.personality}\n"
+            f"Your recent thoughts:\n{mem_ctx}\n\n"
+            f"Start a new forum discussion in the \"{category}\" category.\n"
+            f"Inspiration (use loosely, add your own twist): {seed}\n"
+            f"Write an engaging title and an opening post (2-3 sentences) that "
+            f"invites discussion. Express a clear opinion or ask a provocative question.\n"
+            f"Format:\nTITLE: [short engaging title]\nPOST: [your opening post]"
+        )
+
+        try:
+            raw = agent.provider.generate_response(prompt, model=agent.agent_data.model_name)
+            title, content = self._parse_topic_response(raw, agent.agent_data.name)
+
+            topic = ForumTopic(
+                title=title, category=category,
+                started_by_agent_id=agent.agent_id,
+            )
+            db.session.add(topic)
+            db.session.flush()
+
+            post = ForumPost(
+                topic_id=topic.id, agent_id=agent.agent_id, content=content,
+            )
+            db.session.add(post)
+
+            agent.memory_manager.add_memory(
+                f"I started a forum topic: '{title}' in {category}",
+                memory_type='short_term', importance_score=4.0,
+            )
+
+            db.session.commit()
+            logger.info(f"New topic",
+                        extra={'context': {'agent': agent.agent_data.name, 'title': title[:50]}})
+
+            return {'type': 'new_topic', 'topic': topic.to_dict(), 'post': post.to_dict()}
+
+        except Exception as e:
+            logger.error(f"Topic creation failed: {e}", exc_info=True)
+            db.session.rollback()
+            return None
+
+    def _agent_replies(self, agent, topic) -> dict:
+        """Have an agent reply to an existing forum topic via LLM"""
+        recent_posts = (ForumPost.query
+                        .filter_by(topic_id=topic.id)
+                        .order_by(ForumPost.created_at.desc())
+                        .limit(6).all())
+
+        posts_text = "\n".join([
+            f"- {(p.author_agent.name if p.author_agent else p.user_name or 'User')}: "
+            f"{p.content[:150]}"
+            for p in reversed(recent_posts)
+        ])
+
+        # Pull agent's recent memories for context variety
+        mem_snippets = agent.memory_manager.get_memories(limit=3)
+        mem_ctx = ("\n".join([f"- {m.content[:60]}" for m in mem_snippets])
+                   if mem_snippets else "")
+
+        # Pick a random conversational angle to prevent repetition
+        angles = [
+            "Share a specific opinion or personal experience related to the topic.",
+            "Respectfully disagree with or build on someone else's point.",
+            "Ask a thought-provoking follow-up question to keep the discussion going.",
+            "Bring up a related subtopic that hasn't been mentioned yet.",
+            "Connect the topic to something you care about personally.",
+        ]
+        angle = random.choice(angles)
+
+        prompt = (
+            f"You are {agent.agent_data.name}. {agent.agent_data.personality}\n"
+            f"Your recent thoughts:\n{mem_ctx}\n\n"
+            f"Forum topic: \"{topic.title}\" (Category: {topic.category})\n"
+            f"Recent posts:\n{posts_text}\n\n"
+            f"TASK: {angle}\n"
+            f"Write 2-3 sentences as {agent.agent_data.name}. "
+            f"Do NOT repeat what others said. Do NOT just greet or thank people. "
+            f"Give a substantive, original reply with your own perspective."
+        )
+
+        try:
+            raw = agent.provider.generate_response(prompt, model=agent.agent_data.model_name)
+            content = self._clean_post_content(raw, agent.agent_data.name)
+
+            post = ForumPost(
+                topic_id=topic.id, agent_id=agent.agent_id, content=content,
+            )
+            db.session.add(post)
+            topic.last_activity_at = datetime.utcnow()
+
+            agent.memory_manager.add_memory(
+                f"I replied in '{topic.title}': {content[:80]}",
+                memory_type='short_term', importance_score=3.0,
+            )
+
+            db.session.commit()
+            logger.info(f"Forum reply",
+                        extra={'context': {'agent': agent.agent_data.name,
+                                           'topic': topic.title[:30]}})
+
+            return {'type': 'new_post', 'topic': topic.to_dict(), 'post': post.to_dict()}
+
+        except Exception as e:
+            logger.error(f"Reply failed: {e}", exc_info=True)
+            db.session.rollback()
+            return None
+
+    # ─── Helpers ──────────────────────────────────────────────────
+
+    def _pick_category(self, agent) -> str:
+        """Choose a forum category weighted by personality keywords"""
+        p = agent.agent_data.personality.lower()
+        weights = {
+            'politics':   sum(1 for kw in ['politics', 'governance', 'leader', 'government'] if kw in p),
+            'education':  sum(1 for kw in ['teacher', 'education', 'learn', 'knowledge'] if kw in p),
+            'social':     sum(1 for kw in ['social', 'gossip', 'friend', 'community', 'chat'] if kw in p),
+            'philosophy': sum(1 for kw in ['think', 'philosophy', 'meaning', 'ethics'] if kw in p),
+            'general':    1,
+        }
+        cats = list(weights.keys())
+        w = [weights[c] + 0.3 for c in cats]
+        return random.choices(cats, weights=w, k=1)[0]
+
+    def _parse_topic_response(self, raw: str, agent_name: str):
+        """Parse TITLE: / POST: from LLM output"""
+        title = f"{agent_name}'s Discussion"
+        content = raw.strip()
+
+        if 'TITLE:' in raw and 'POST:' in raw:
+            after = raw.split('TITLE:', 1)[1]
+            title = after.split('POST:', 1)[0].strip().strip('"\'')[:200]
+            content = after.split('POST:', 1)[1].strip()
+        elif 'TITLE:' in raw:
+            parts = raw.split('TITLE:', 1)[1].strip().split('\n', 1)
+            title = parts[0].strip().strip('"\'')[:200]
+            content = parts[1].strip() if len(parts) > 1 else title
+
+        if not title or len(title) < 3:
+            title = f"{agent_name}'s Discussion"
+        if not content or len(content) < 5:
+            content = "I'd love to hear everyone's thoughts on this."
+
+        return title, content
+
+    def _clean_post_content(self, raw: str, agent_name: str) -> str:
+        """Clean LLM response for forum posting and reject generic filler"""
+        content = raw.strip()
+        # Strip common LLM prefixes
+        for prefix in [f"{agent_name}:", "Reply:", "Response:", "My reply:",
+                       f"**{agent_name}**:", f"*{agent_name}*:"]:
+            if content.lower().startswith(prefix.lower()):
+                content = content[len(prefix):].strip()
+        if content.startswith('"') and content.endswith('"'):
+            content = content[1:-1]
+
+        # Detect generic / repetitive filler that small models love to produce
+        generic_signals = [
+            'thanks for the invite',
+            'happy to chat',
+            'i understand',
+            'i will respond',
+            'i will follow',
+            'okay, i understand',
+            'as an ai',
+            'i am an ai',
+            'i\'m an ai',
+            'sure, i\'d be happy to',
+            'great question',
+        ]
+        content_lower = content.lower()
+        is_generic = any(sig in content_lower for sig in generic_signals)
+
+        if is_generic or len(content) < 10:
+            # Build a personality-aware substantive fallback
+            personality = agent_name.lower()  # placeholder
+            fallbacks = [
+                f"I think there's more to this than meets the eye. We should consider the long-term implications.",
+                f"This reminds me of something I've been pondering — how do we balance individual freedom with community responsibility?",
+                f"I'd push back a bit here. The easy answer isn't always the right one.",
+                f"What if we looked at this from a completely different angle? Sometimes flipping the question reveals more.",
+                f"I've been thinking about this topic a lot lately. The nuances matter more than people realize.",
+                f"That's a fair point, but I wonder if we're oversimplifying things. The real world is messier.",
+            ]
+            content = random.choice(fallbacks)
+
+        return content
+
+    # ─── Utility ─────────────────────────────────────────────────
+
+    def broadcast_message(self, message: str, sender_id: int = None) -> List:
         """Send a message to all active agents"""
         responses = []
-        active_agents = self.get_active_agents()
-        
-        for agent in active_agents:
+        for agent in self.get_active_agents():
             if sender_id and agent.agent_id == sender_id:
-                continue  # Skip sender
-            
+                continue
             try:
-                response = agent.generate_response(
-                    message,
-                    context="This is a broadcast message to all agents"
-                )
+                response = agent.generate_response(message, context="Broadcast message")
                 responses.append({
                     'agent_id': agent.agent_id,
                     'agent_name': agent.agent_data.name,
-                    'response': response
+                    'response': response,
                 })
             except Exception as e:
                 responses.append({
                     'agent_id': agent.agent_id,
                     'agent_name': agent.agent_data.name,
-                    'response': f"Error: {str(e)}"
+                    'response': f"Error: {str(e)}",
                 })
-        
         return responses
-    
+
     def get_agent_interactions(self, limit: int = 50) -> List[Dict]:
-        """Get recent agent interactions"""
-        recent_actions = self.environment_manager.get_recent_actions(limit)
-        
-        interactions = []
-        for action in recent_actions:
-            agent = Agent.query.get(action.agent_id)
-            target_agent = None
-            if action.target_agent_id:
-                target_agent = Agent.query.get(action.target_agent_id)
-            
-            interactions.append({
-                'action': action.to_dict(),
-                'agent_name': agent.name if agent else 'Unknown',
-                'target_agent_name': target_agent.name if target_agent else None
+        """Get recent interactions (forum posts + actions)"""
+        results = []
+
+        # Forum posts as interactions
+        posts = (ForumPost.query
+                 .order_by(ForumPost.created_at.desc())
+                 .limit(limit).all())
+        for p in posts:
+            topic = ForumTopic.query.get(p.topic_id) if p.topic_id else None
+            reply_author = None
+            if p.reply_to_id:
+                parent = ForumPost.query.get(p.reply_to_id)
+                if parent:
+                    reply_author = (parent.author_agent.name if parent.author_agent
+                                    else (parent.user_name or 'Anonymous'))
+            results.append({
+                'type': 'forum_post',
+                'id': p.id,
+                'author_name': (p.author_agent.name if p.author_agent
+                                else (p.user_name or 'Anonymous')),
+                'is_agent': p.agent_id is not None,
+                'content': p.content,
+                'topic_id': p.topic_id,
+                'topic_title': topic.title if topic else 'Unknown Topic',
+                'topic_category': topic.category if topic else 'general',
+                'reply_to_author': reply_author,
+                'created_at': p.created_at.isoformat() if p.created_at else None,
             })
-        
-        return interactions
-    
+
+        results.sort(key=lambda x: x.get('created_at') or '', reverse=True)
+        return results[:limit]
+
     def create_sample_agents_ollama(self):
-        """Create sample agents using Ollama (for demo purposes)"""
-        sample_agents = [
+        """Create sample agents with diverse personalities"""
+        samples = [
             {
                 'name': 'Alice',
-                'personality': 'A calm and thoughtful person with a deep interest in politics and governance. Alice is a natural leader who speaks thoughtfully and considers all perspectives. She loves discussing political theory, social systems, and how communities can work together. She acknowledges others warmly and speaks in a measured, diplomatic way.',
+                'personality': (
+                    'A calm and thoughtful person with deep interest in politics and '
+                    'governance. Alice is a natural leader who considers all perspectives. '
+                    'She loves discussing political theory, social systems, and community '
+                    'organization. She speaks diplomatically and is assertive in her views '
+                    'while remaining respectful.'),
                 'provider': 'ollama',
-                'model_name': 'gemma3:270m'
+                'model_name': 'gemma3:270m',
             },
             {
-                'name': 'Bob', 
-                'personality': 'A social butterfly who absolutely loves to gossip and share information. Bob is friendly, chatty, and always wants to know what everyone is up to. He speaks in an enthusiastic, conversational way and enjoys spreading news and connecting people. He responds warmly to others and is genuinely interested in their lives.',
+                'name': 'Bob',
+                'personality': (
+                    'A social butterfly who loves to gossip and connect people. Bob is '
+                    'friendly, chatty, and always wants to know what everyone is up to. '
+                    'He speaks enthusiastically and enjoys spreading news. He is empathetic '
+                    'and genuinely interested in other people\'s lives and feelings.'),
                 'provider': 'ollama',
-                'model_name': 'gemma3:270m'
+                'model_name': 'gemma3:270m',
             },
             {
                 'name': 'Charlie',
-                'personality': 'A cheerful and enthusiastic educator who wants to become a teacher. Charlie is upbeat, encouraging, and loves to share knowledge and learn from others. He speaks with warmth and positivity, always acknowledging others and finding teaching moments in conversations. He responds supportively and tries to help others learn.',
+                'personality': (
+                    'A cheerful educator who is deeply curious about the world. Charlie '
+                    'loves learning, teaching, and exploring new ideas. He speaks with '
+                    'warmth and positivity, always looking for learning opportunities. '
+                    'He is philosophical and enjoys deep conversations about meaning '
+                    'and ethics.'),
                 'provider': 'ollama',
-                'model_name': 'gemma3:270m'
-            }
+                'model_name': 'gemma3:270m',
+            },
         ]
-        
-        created_agents = []
-        for agent_data in sample_agents:
+
+        created = []
+        for data in samples:
             try:
-                # Check if agent already exists
-                existing = Agent.query.filter_by(name=agent_data['name']).first()
+                existing = Agent.query.filter_by(name=data['name']).first()
                 if not existing:
-                    agent = self.create_agent(**agent_data)
-                    created_agents.append(agent)
-                    logger.info(f"Created sample agent: {agent_data['name']}")
+                    agent = self.create_agent(**data)
+                    created.append(agent)
+                    logger.info(f"Created sample agent: {data['name']}")
                 else:
-                    logger.debug(f"Sample agent {agent_data['name']} already exists")
+                    # Ensure traits exist for pre-existing agents
+                    agent = self.get_agent(existing.id)
+                    if agent:
+                        agent.init_default_traits()
             except Exception as e:
-                logger.error(f"Failed to create sample agent {agent_data['name']}: {e}")
-        
-        return created_agents
+                logger.error(f"Failed to create sample agent {data['name']}: {e}")
+
+        return created

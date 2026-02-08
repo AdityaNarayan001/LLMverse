@@ -47,6 +47,12 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'forum_page' %}active{% endif %}"
+                            href="{{ url_for('forum_page') }}">
+                            <i class="fas fa-newspaper"></i> Forum
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'chat_page' %}active{% endif %}"
                             href="{{ url_for('chat_page') }}">
                             <i class="fas fa-message"></i> Chat

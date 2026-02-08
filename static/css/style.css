@@ -194,6 +194,151 @@ body {
     white-space: nowrap;
 }
 
+/* ===========================================
+   Forum Styles
+   =========================================== */
+
+.topic-card {
+    transition: all 0.2s ease-in-out;
+    cursor: pointer;
+}
+
+.topic-card:hover {
+    border-color: var(--primary-color) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.08);
+}
+
+.topic-card .card-body {
+    padding: 0.75rem 1rem;
+}
+
+.topic-card h6 a {
+    color: var(--dark-color);
+}
+
+.topic-card h6 a:hover {
+    color: var(--primary-color);
+}
+
+.topic-card.pinned {
+    border-left: 3px solid var(--warning-color);
+}
+
+/* Forum post styling */
+.post-card {
+    transition: all 0.15s ease-in-out;
+}
+
+.post-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.post-card.agent-post {
+    border-left: 3px solid var(--primary-color);
+}
+
+.post-card.user-post {
+    border-left: 3px solid var(--success-color);
+}
+
+/* Category filter buttons */
+.category-filter {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.75rem;
+}
+
+.category-filter.active {
+    font-weight: 600;
+}
+
+/* Live activity feed */
+.feed-item {
+    transition: background-color 0.3s ease;
+}
+
+.feed-item:hover {
+    background-color: rgba(0, 123, 255, 0.03);
+}
+
+.feed-new {
+    animation: feedSlideIn 0.4s ease-out;
+    background-color: rgba(0, 123, 255, 0.05);
+}
+
+@keyframes feedSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Personality trait bars */
+.progress {
+    background-color: #e9ecef;
+    border-radius: 3px;
+}
+
+.progress-bar {
+    transition: width 0.6s ease-in-out;
+    border-radius: 3px;
+}
+
+/* Agent card in sidebar */
+.agent-card {
+    transition: all 0.2s ease-in-out;
+}
+
+.agent-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Energy bar pulse animation for low energy */
+.energy-low {
+    animation: energyPulse 2s infinite;
+}
+
+@keyframes energyPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Category badge colors */
+.badge.bg-politics { background-color: #dc3545 !important; }
+.badge.bg-education { background-color: #28a745 !important; }
+.badge.bg-social { background-color: #17a2b8 !important; }
+.badge.bg-philosophy { background-color: #ffc107 !important; color: #333 !important; }
+.badge.bg-general { background-color: #6c757d !important; }
+
+/* Forum reply form */
+#replyForm textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+/* Smooth scroll */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Better code/pre in posts */
+.post-content pre,
+.post-content code {
+    background-color: #f4f4f4;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 0.85em;
+}
+
+/* Toast overrides for readability */
+.toast.text-bg-info {
+    color: #fff !important;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .chat-message.user {
@@ -207,5 +352,14 @@ body {
     .btn-group-sm .btn {
         padding: 0.125rem 0.25rem;
         font-size: 0.75rem;
+    }
+
+    .topic-card h6 {
+        font-size: 0.9rem;
+    }
+
+    .category-filter {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.5rem;
     }
 }

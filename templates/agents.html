@@ -431,14 +431,45 @@
 
     function openEditModal(event) {
         const agentId = event.target.closest('button').dataset.agentId;
-        const row = document.querySelector(`tr[data-agent-id="${agentId}"]`);
-        const agentName = row.querySelector('td:nth-child(2)').textContent.trim();
 
-        document.getElementById('editAgentId').value = agentId;
-        document.getElementById('editAgentName').value = agentName;
+        // Fetch full agent data from the API
+        fetch(`/api/agents`)
+            .then(r => r.json())
+            .then(agents => {
+                const agent = agents.find(a => a.id == agentId);
+                if (!agent) { showToast('Agent not found', 'error'); return; }
 
-        const modal = new bootstrap.Modal(document.getElementById('editAgentModal'));
-        modal.show();
+                document.getElementById('editAgentId').value = agent.id;
+                document.getElementById('editAgentName').value = agent.name;
+                document.getElementById('editAgentPersonality').value = agent.personality;
+                document.getElementById('editAgentActive').checked = agent.is_active;
+
+                // Set provider and populate models
+                const providerSelect = document.getElementById('editAgentProvider');
+                providerSelect.value = agent.provider;
+                updateEditModelOptions();  // populate model dropdown
+
+                // After models are populated, select the current model
+                // Use a small delay to ensure the dropdown is built
+                setTimeout(() => {
+                    const modelSelect = document.getElementById('editAgentModel');
+                    // Try to select the existing model
+                    if (modelSelect.querySelector(`option[value="${agent.model_name}"]`)) {
+                        modelSelect.value = agent.model_name;
+                    } else {
+                        // If model isn't in the list (provider might be down), add it
+                        const opt = document.createElement('option');
+                        opt.value = agent.model_name;
+                        opt.textContent = agent.model_name;
+                        modelSelect.appendChild(opt);
+                        modelSelect.value = agent.model_name;
+                    }
+                }, 50);
+
+                const modal = new bootstrap.Modal(document.getElementById('editAgentModal'));
+                modal.show();
+            })
+            .catch(err => showToast('Error loading agent: ' + err.message, 'error'));
     }
 
     function updateAgent(event) {

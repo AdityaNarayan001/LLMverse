@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from flask_socketio import SocketIO, emit
 from config import Config
-from models import db, Agent, Environment, Action, Memory
+from models import db, Agent, Environment, Action, Memory, ForumTopic, ForumPost, PersonalityTrait
 from src.agents import AgentManager
 from src.environment import EnvironmentManager
 from src.providers.factory import ProviderFactory
@@ -62,16 +62,37 @@ def initialize_app():
 # Routes
 @app.route('/')
 def index():
-    """Main dashboard"""
+    """Main dashboard with live forum feed and agent traits"""
     agents = Agent.query.all()
-    # Get fresh environment from database to avoid DetachedInstanceError
     environment = Environment.query.filter_by(is_active=True).first()
     simulation_status = agent_manager.get_simulation_status()
     
-    return render_template('index.html', 
+    # Recent forum posts for live feed
+    recent_posts = (ForumPost.query
+                    .order_by(ForumPost.created_at.desc())
+                    .limit(20).all())
+    
+    # Agent personality traits
+    agent_traits = {}
+    for agent in agents:
+        traits = PersonalityTrait.query.filter_by(agent_id=agent.id).all()
+        agent_traits[agent.id] = {t.trait_name: round(t.value, 2) for t in traits}
+    
+    trait_colors = {
+        'openness': 'info',
+        'sociability': 'success',
+        'assertiveness': 'danger',
+        'curiosity': 'warning',
+        'empathy': 'primary',
+    }
+    
+    return render_template('index.html',
                          agents=agents,
                          environment=environment,
-                         simulation_status=simulation_status)
+                         simulation_status=simulation_status,
+                         recent_posts=recent_posts,
+                         agent_traits=agent_traits,
+                         trait_colors=trait_colors)
 
 @app.route('/agents')
 def agents_page():
@@ -79,15 +100,32 @@ def agents_page():
     agents = Agent.query.all()
     providers = ProviderFactory.get_available_providers()
     
+    # Build provider configs from actual settings so is_available() works
+    provider_configs = {
+        'openai': {
+            'api_key': Config.OPENAI_API_KEY,
+            'azure_endpoint': Config.AZURE_OPENAI_ENDPOINT,
+            'azure_deployment': Config.AZURE_OPENAI_DEPLOYMENT,
+            'azure_api_version': Config.AZURE_OPENAI_API_VERSION,
+        },
+        'gemini': {
+            'api_key': Config.GEMINI_API_KEY,
+        },
+        'ollama': {
+            'base_url': Config.OLLAMA_BASE_URL,
+        },
+    }
+    
     # Get available models for each provider
     provider_models = {}
     for provider in providers:
         try:
-            p = ProviderFactory.create_provider(provider)
+            cfg = provider_configs.get(provider, {})
+            p = ProviderFactory.create_provider(provider, **cfg)
             if p.is_available():
                 provider_models[provider] = p.list_models()
             else:
-                provider_models[provider] = []
+                provider_models[provider] = p.list_models()  # still show known models
         except:
             provider_models[provider] = []
     
@@ -122,6 +160,54 @@ def chat_page():
     """Chat interface with agents"""
     agents = Agent.query.filter_by(is_active=True).all()
     return render_template('chat.html', agents=agents)
+
+@app.route('/forum')
+def forum_page():
+    """Community forum with topic-based discussions"""
+    category = request.args.get('category', 'all')
+    if category and category != 'all':
+        topics = (ForumTopic.query
+                  .filter_by(category=category)
+                  .order_by(ForumTopic.is_pinned.desc(), ForumTopic.last_activity_at.desc())
+                  .all())
+    else:
+        topics = (ForumTopic.query
+                  .order_by(ForumTopic.is_pinned.desc(), ForumTopic.last_activity_at.desc())
+                  .all())
+    
+    agents = Agent.query.all()
+    total_posts = ForumPost.query.count()
+    
+    category_colors = {
+        'general': 'secondary', 'politics': 'danger',
+        'education': 'success', 'social': 'info', 'philosophy': 'warning',
+    }
+    
+    return render_template('forum.html',
+                         topics=topics, agents=agents,
+                         total_posts=total_posts,
+                         current_category=category,
+                         category_colors=category_colors)
+
+@app.route('/forum/<int:topic_id>')
+def topic_page(topic_id):
+    """Forum topic detail with posts"""
+    topic = ForumTopic.query.get_or_404(topic_id)
+    posts = (ForumPost.query
+             .filter_by(topic_id=topic_id)
+             .order_by(ForumPost.created_at.asc())
+             .all())
+    
+    participants = set()
+    for p in posts:
+        if p.author_agent:
+            participants.add(p.author_agent.name)
+        elif p.user_name:
+            participants.add(p.user_name)
+    
+    return render_template('topic.html',
+                         topic=topic, posts=posts,
+                         participants=sorted(participants))
 
 # API Routes
 @app.route('/api/agents', methods=['GET'])
@@ -421,6 +507,82 @@ def broadcast_message():
         return jsonify(responses)
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+# ─── Forum API ────────────────────────────────────────────────
+
+@app.route('/api/forum/topics', methods=['GET'])
+def api_list_topics():
+    """List all forum topics"""
+    category = request.args.get('category')
+    query = ForumTopic.query.order_by(ForumTopic.last_activity_at.desc())
+    if category and category != 'all':
+        query = query.filter_by(category=category)
+    topics = query.all()
+    return jsonify([t.to_dict() for t in topics])
+
+@app.route('/api/forum/topics', methods=['POST'])
+def api_create_topic():
+    """Create a new forum topic (user)"""
+    data = request.json
+    if not data.get('title') or not data.get('content'):
+        return jsonify({'error': 'Title and content required'}), 400
+    
+    topic = ForumTopic(
+        title=data['title'],
+        category=data.get('category', 'general'),
+        started_by_user=data.get('user_name', 'Anonymous'),
+    )
+    db.session.add(topic)
+    db.session.flush()
+    
+    post = ForumPost(
+        topic_id=topic.id,
+        user_name=data.get('user_name', 'Anonymous'),
+        content=data['content'],
+    )
+    db.session.add(post)
+    db.session.commit()
+    
+    result = {'type': 'new_topic', 'topic': topic.to_dict(), 'post': post.to_dict()}
+    socketio.emit('forum_update', result)
+    return jsonify(topic.to_dict()), 201
+
+@app.route('/api/forum/topics/<int:topic_id>/posts', methods=['GET'])
+def api_get_posts(topic_id):
+    """Get all posts in a topic"""
+    posts = (ForumPost.query
+             .filter_by(topic_id=topic_id)
+             .order_by(ForumPost.created_at.asc())
+             .all())
+    return jsonify([p.to_dict() for p in posts])
+
+@app.route('/api/forum/topics/<int:topic_id>/posts', methods=['POST'])
+def api_create_post(topic_id):
+    """Add a post to a topic (user)"""
+    data = request.json
+    topic = ForumTopic.query.get_or_404(topic_id)
+    
+    if not data.get('content'):
+        return jsonify({'error': 'Content required'}), 400
+    
+    post = ForumPost(
+        topic_id=topic_id,
+        user_name=data.get('user_name', 'Anonymous'),
+        content=data['content'],
+    )
+    db.session.add(post)
+    topic.last_activity_at = datetime.utcnow()
+    db.session.commit()
+    
+    result = {'type': 'new_post', 'topic': topic.to_dict(), 'post': post.to_dict()}
+    socketio.emit('forum_update', result)
+    return jsonify(post.to_dict()), 201
+
+@app.route('/api/agents/<int:agent_id>/traits', methods=['GET'])
+def api_get_traits(agent_id):
+    """Get personality traits for an agent"""
+    traits = PersonalityTrait.query.filter_by(agent_id=agent_id).all()
+    return jsonify({t.trait_name: round(t.value, 2) for t in traits})
 
 # WebSocket events
 @socketio.on('connect')

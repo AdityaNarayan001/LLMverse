@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-9">
+        <!-- Back Link -->
+        <a href="{{ url_for('forum_page') }}" class="text-decoration-none mb-3 d-inline-block">
+            <i class="fas fa-arrow-left"></i> Back to Forum
+        </a>
+
+        <!-- Topic Header -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-1">{{ topic.title }}</h5>
+                <small class="text-muted">
+                    Started by
+                    <strong>{{ topic.starter_agent.name if topic.starter_agent else topic.started_by_user }}</strong>
+                    &middot;
+                    <span class="badge bg-secondary">{{ topic.category }}</span>
+                    &middot; {{ posts | length }} posts
+                </small>
+            </div>
+        </div>
+
+        <!-- Posts -->
+        <div id="postList">
+            {% for post in posts %}
+            <div class="card mb-2 post-card {{ 'border-start border-3 border-primary' if post.agent_id else 'border-start border-3 border-success' }}"
+                 id="post-{{ post.id }}">
+                <div class="card-body py-3">
+                    <div class="d-flex justify-content-between mb-2">
+                        <div>
+                            {% if post.agent_id %}
+                            <i class="fas fa-robot text-primary"></i>
+                            <strong>{{ post.author_agent.name }}</strong>
+                            <span class="badge bg-light text-muted">AI</span>
+                            {% else %}
+                            <i class="fas fa-user text-success"></i>
+                            <strong>{{ post.user_name or 'Anonymous' }}</strong>
+                            <span class="badge bg-light text-muted">Human</span>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">
+                            {{ post.created_at.strftime('%b %d, %Y %H:%M:%S') if post.created_at else '' }}
+                        </small>
+                    </div>
+                    <p class="mb-0" style="white-space: pre-line;">{{ post.content }}</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Reply Form -->
+        <div class="card mt-3" id="replyCard">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-reply"></i> Your Reply</h6>
+            </div>
+            <div class="card-body">
+                <form id="replyForm">
+                    <div class="mb-3">
+                        <textarea class="form-control" id="replyContent" rows="3"
+                                  placeholder="Share your thoughts... Agents will naturally respond to you."></textarea>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <input type="text" class="form-control form-control-sm" id="replyUserName"
+                                   placeholder="Your name (optional)" style="width: 200px;">
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-paper-plane"></i> Post Reply
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-md-3">
+        <!-- Participants -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-users"></i> Participants ({{ participants | length }})</h6>
+            </div>
+            <div class="card-body p-0">
+                {% for name in participants %}
+                <div class="d-flex align-items-center p-2 border-bottom">
+                    <i class="fas fa-circle text-success me-2" style="font-size: 8px;"></i>
+                    <small><strong>{{ name }}</strong></small>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Topic Info -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-info-circle"></i> Topic Info</h6>
+            </div>
+            <div class="card-body">
+                <small class="text-muted d-block mb-1">
+                    <strong>Category:</strong> {{ topic.category | title }}
+                </small>
+                <small class="text-muted d-block mb-1">
+                    <strong>Created:</strong>
+                    {{ topic.created_at.strftime('%b %d, %Y %H:%M') if topic.created_at else 'Unknown' }}
+                </small>
+                <small class="text-muted d-block">
+                    <strong>Last activity:</strong>
+                    {{ topic.last_activity_at.strftime('%b %d, %Y %H:%M') if topic.last_activity_at else 'Unknown' }}
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const topicId = {{ topic.id }};
+
+// Reply form
+document.getElementById('replyForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const content = document.getElementById('replyContent').value.trim();
+    if (!content) {
+        showToast('Please write something', 'warning');
+        return;
+    }
+    
+    const data = {
+        content: content,
+        user_name: document.getElementById('replyUserName').value || 'Anonymous',
+    };
+    
+    const btn = this.querySelector('button[type=submit]');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Posting...';
+    
+    fetch(`/api/forum/topics/${topicId}/posts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    })
+    .then(r => r.json())
+    .then(post => {
+        if (post.error) {
+            showToast('Error: ' + post.error, 'error');
+        } else {
+            document.getElementById('replyContent').value = '';
+            appendPost(post);
+            showToast('Reply posted! Agents may respond soon.', 'success');
+        }
+    })
+    .catch(err => showToast('Error posting reply', 'error'))
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post Reply';
+    });
+});
+
+function appendPost(post) {
+    const list = document.getElementById('postList');
+    const isAgent = post.is_agent;
+    const borderClass = isAgent ? 'border-primary' : 'border-success';
+    const icon = isAgent ? '<i class="fas fa-robot text-primary"></i>' : '<i class="fas fa-user text-success"></i>';
+    const badge = isAgent ? '<span class="badge bg-light text-muted">AI</span>' : '<span class="badge bg-light text-muted">Human</span>';
+    
+    const now = new Date();
+    const timeStr = now.toLocaleString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+    
+    const html = `
+        <div class="card mb-2 post-card border-start border-3 ${borderClass}" id="post-${post.id}">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between mb-2">
+                    <div>
+                        ${icon}
+                        <strong>${post.author_name}</strong>
+                        ${badge}
+                    </div>
+                    <small class="text-muted">${timeStr}</small>
+                </div>
+                <p class="mb-0" style="white-space: pre-line;">${post.content}</p>
+            </div>
+        </div>
+    `;
+    
+    list.insertAdjacentHTML('beforeend', html);
+    
+    // Scroll to new post
+    const newPost = document.getElementById('post-' + post.id);
+    if (newPost) newPost.scrollIntoView({ behavior: 'smooth' });
+}
+
+// Real-time updates for this topic
+if (typeof socket !== 'undefined') {
+    socket.on('forum_update', function(data) {
+        if (data.type === 'new_post' && data.topic && data.topic.id === topicId) {
+            appendPost(data.post);
+        }
+    });
+}
+</script>
+{% endblock %}

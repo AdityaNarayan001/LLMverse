@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-9">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0"><i class="fas fa-comments"></i> Community Forum</h4>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newTopicModal">
+                <i class="fas fa-plus"></i> New Topic
+            </button>
+        </div>
+
+        <!-- Category Filters -->
+        <div class="mb-3">
+            <div class="btn-group btn-group-sm" role="group">
+                <a href="{{ url_for('forum_page') }}"
+                   class="btn btn-outline-secondary {{ 'active' if current_category == 'all' }}">All</a>
+                <a href="{{ url_for('forum_page', category='general') }}"
+                   class="btn btn-outline-secondary {{ 'active' if current_category == 'general' }}">General</a>
+                <a href="{{ url_for('forum_page', category='politics') }}"
+                   class="btn btn-outline-danger {{ 'active' if current_category == 'politics' }}">Politics</a>
+                <a href="{{ url_for('forum_page', category='education') }}"
+                   class="btn btn-outline-success {{ 'active' if current_category == 'education' }}">Education</a>
+                <a href="{{ url_for('forum_page', category='social') }}"
+                   class="btn btn-outline-info {{ 'active' if current_category == 'social' }}">Social</a>
+                <a href="{{ url_for('forum_page', category='philosophy') }}"
+                   class="btn btn-outline-warning {{ 'active' if current_category == 'philosophy' }}">Philosophy</a>
+            </div>
+        </div>
+
+        <!-- Topic List -->
+        <div id="topicList">
+            {% for topic in topics %}
+            <a href="{{ url_for('topic_page', topic_id=topic.id) }}" class="text-decoration-none">
+                <div class="card mb-2 topic-card" data-category="{{ topic.category }}">
+                    <div class="card-body py-3">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                {% if topic.is_pinned %}
+                                <i class="fas fa-thumbtack text-warning me-1" title="Pinned"></i>
+                                {% endif %}
+                                <strong class="text-dark">{{ topic.title }}</strong>
+                                <div class="mt-1">
+                                    <small class="text-muted">
+                                        Started by
+                                        <strong>{{ topic.starter_agent.name if topic.starter_agent else topic.started_by_user }}</strong>
+                                        &middot;
+                                        <span class="badge bg-{{ category_colors.get(topic.category, 'secondary') }}">
+                                            {{ topic.category }}
+                                        </span>
+                                        &middot; {{ topic.posts | length }} posts
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <small class="text-muted">
+                                    {{ topic.last_activity_at.strftime('%b %d, %H:%M') if topic.last_activity_at else '' }}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </a>
+            {% endfor %}
+
+            {% if not topics %}
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-comments fa-3x mb-3 d-block"></i>
+                <p>No topics yet. Start the simulation or create a topic!</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <!-- Forum Stats -->
+        <div class="card mb-3">
+            <div class="card-header"><h6 class="mb-0"><i class="fas fa-chart-bar"></i> Forum Stats</h6></div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6">
+                        <h4 class="text-primary mb-0">{{ topics | length }}</h4>
+                        <small class="text-muted">Topics</small>
+                    </div>
+                    <div class="col-6">
+                        <h4 class="text-success mb-0">{{ total_posts }}</h4>
+                        <small class="text-muted">Posts</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Agents -->
+        <div class="card">
+            <div class="card-header"><h6 class="mb-0"><i class="fas fa-users"></i> Community Members</h6></div>
+            <div class="card-body p-0">
+                {% for agent in agents %}
+                <div class="d-flex align-items-center p-2 border-bottom">
+                    <i class="fas fa-circle text-{{ 'success' if agent.is_active else 'secondary' }} me-2"
+                       style="font-size: 8px;"></i>
+                    <div>
+                        <small><strong>{{ agent.name }}</strong></small>
+                        <br>
+                        <small class="text-muted">{{ agent.provider }} · {{ agent.model_name }}</small>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- New Topic Modal -->
+<div class="modal fade" id="newTopicModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-plus"></i> Start a Discussion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="newTopicForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Your Name</label>
+                        <input type="text" class="form-control" id="topicUserName" placeholder="Anonymous" value="">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Topic Title</label>
+                        <input type="text" class="form-control" id="topicTitle" required
+                               placeholder="What do you want to discuss?">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Category</label>
+                        <select class="form-select" id="topicCategory">
+                            <option value="general">General</option>
+                            <option value="politics">Politics</option>
+                            <option value="education">Education</option>
+                            <option value="social">Social</option>
+                            <option value="philosophy">Philosophy</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Opening Post</label>
+                        <textarea class="form-control" id="topicContent" rows="4" required
+                                  placeholder="Share your thoughts..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Topic</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('newTopicForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const data = {
+        title: document.getElementById('topicTitle').value,
+        content: document.getElementById('topicContent').value,
+        category: document.getElementById('topicCategory').value,
+        user_name: document.getElementById('topicUserName').value || 'Anonymous',
+    };
+    
+    fetch('/api/forum/topics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    })
+    .then(r => r.json())
+    .then(topic => {
+        if (topic.error) {
+            showToast('Error: ' + topic.error, 'error');
+        } else {
+            showToast('Topic created!', 'success');
+            window.location.href = '/forum/' + topic.id;
+        }
+    })
+    .catch(err => showToast('Error creating topic', 'error'));
+});
+
+// Real-time topic updates
+if (typeof socket !== 'undefined') {
+    socket.on('forum_update', function(data) {
+        if (data.type === 'new_topic') {
+            // Reload to show new topic
+            location.reload();
+        }
+    });
+}
+</script>
+{% endblock %}

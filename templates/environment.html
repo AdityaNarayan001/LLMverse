@@ -7,183 +7,284 @@
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-globe"></i> Current Environment</h5>
-                <div class="environment-actions">
-                    <button class="btn btn-sm btn-warning" id="resetEnvironment">
-                        <i class="fas fa-redo"></i> Reset
-                    </button>
-                </div>
+                <button class="btn btn-sm btn-warning" id="resetEnvironment">
+                    <i class="fas fa-redo"></i> Reset
+                </button>
             </div>
             <div class="card-body">
                 {% if current_environment %}
-                <h6>{{ current_environment.name }}</h6>
-                <p class="text-muted">{{ current_environment.description }}</p>
-
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>Rules</h6>
-                        <div class="environment-rules">{{ environment_rules|tojson(indent=2) if environment_rules else
-                            '{}' }}</div>
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h4 class="mb-1">{{ current_environment.name }}</h4>
+                        <p class="text-muted mb-0">{{ current_environment.description }}</p>
                     </div>
-                    <div class="col-md-6">
-                        <h6>Current State</h6>
-                        <div class="environment-state">{{ environment_state|tojson(indent=2) if environment_state else
-                            '{}' }}</div>
+                    <span class="badge bg-success fs-6">Active</span>
+                </div>
+
+                <!-- Rules as readable cards -->
+                <h6 class="mt-4 mb-3"><i class="fas fa-gavel text-primary"></i> Environment Rules</h6>
+                <div class="row g-2 mb-4">
+                    {% if environment_rules %}
+                    {% for key, value in environment_rules.items() %}
+                    <div class="col-md-4 col-sm-6">
+                        <div class="border rounded p-3 h-100 bg-light">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-muted text-uppercase" style="font-size:0.7rem; letter-spacing:0.5px;">
+                                    {{ key | replace('_', ' ') }}
+                                </small>
+                                {% if value is sameas true %}
+                                <span class="badge bg-success">ON</span>
+                                {% elif value is sameas false %}
+                                <span class="badge bg-danger">OFF</span>
+                                {% else %}
+                                <span class="badge bg-primary">{{ value }}</span>
+                                {% endif %}
+                            </div>
+                            <div class="mt-1">
+                                {% if value is sameas true or value is sameas false %}
+                                <strong>{{ 'Enabled' if value else 'Disabled' }}</strong>
+                                {% elif value == 0 %}
+                                <strong>Unlimited</strong>
+                                {% else %}
+                                <strong>{{ value }}{% if 'cooldown' in key %}s{% endif %}</strong>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="col-12"><p class="text-muted">No rules configured</p></div>
+                    {% endif %}
+                </div>
+
+                <!-- World State as structured display -->
+                <h6 class="mt-4 mb-3"><i class="fas fa-map text-info"></i> World State</h6>
+                {% if environment_state %}
+                <div class="row g-3">
+                    <!-- Day Counter -->
+                    {% if environment_state.day is defined %}
+                    <div class="col-md-3 col-6">
+                        <div class="text-center border rounded p-3">
+                            <h3 class="text-primary mb-0">{{ environment_state.day }}</h3>
+                            <small class="text-muted">Simulation Day</small>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Societies Count -->
+                    <div class="col-md-3 col-6">
+                        <div class="text-center border rounded p-3">
+                            <h3 class="text-success mb-0">{{ environment_state.societies | length if environment_state.societies else 0 }}</h3>
+                            <small class="text-muted">Societies</small>
+                        </div>
+                    </div>
+
+                    <!-- Governments Count -->
+                    <div class="col-md-3 col-6">
+                        <div class="text-center border rounded p-3">
+                            <h3 class="text-warning mb-0">{{ environment_state.governments | length if environment_state.governments else 0 }}</h3>
+                            <small class="text-muted">Governments</small>
+                        </div>
+                    </div>
+
+                    <!-- Relationships Count -->
+                    <div class="col-md-3 col-6">
+                        <div class="text-center border rounded p-3">
+                            <h3 class="text-info mb-0">{{ environment_state.relationships | length if environment_state.relationships else 0 }}</h3>
+                            <small class="text-muted">Relationships</small>
+                        </div>
                     </div>
                 </div>
+
+                <!-- Societies Detail -->
+                {% if environment_state.societies %}
+                <h6 class="mt-4 mb-2"><i class="fas fa-building text-success"></i> Societies</h6>
+                <div class="row g-2">
+                    {% for society in environment_state.societies %}
+                    <div class="col-md-6">
+                        <div class="card border-success">
+                            <div class="card-body py-2 px-3">
+                                <strong>{{ society.name }}</strong>
+                                <div class="d-flex justify-content-between mt-1">
+                                    <small class="text-muted"><i class="fas fa-user-tie"></i> Founder: Agent {{ society.founder }}</small>
+                                    <small class="text-muted"><i class="fas fa-users"></i> {{ society.members | length }} members</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- Governments Detail -->
+                {% if environment_state.governments %}
+                <h6 class="mt-4 mb-2"><i class="fas fa-landmark text-warning"></i> Governments</h6>
+                <div class="row g-2">
+                    {% for gov in environment_state.governments %}
+                    <div class="col-md-6">
+                        <div class="card border-warning">
+                            <div class="card-body py-2 px-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <strong>{{ gov.name }}</strong>
+                                    <span class="badge bg-warning text-dark">{{ gov.type }}</span>
+                                </div>
+                                <small class="text-muted"><i class="fas fa-crown"></i> Leader: Agent {{ gov.leader }}</small>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- Events log -->
+                {% if environment_state.events %}
+                <h6 class="mt-4 mb-2"><i class="fas fa-clock-rotate-left text-secondary"></i> Recent Events</h6>
+                <div class="border rounded" style="max-height: 200px; overflow-y: auto;">
+                    {% for event in environment_state.events[-10:] | reverse %}
+                    <div class="px-3 py-2 border-bottom">
+                        <small class="text-muted">{{ event }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
                 {% else %}
-                <p class="text-muted">No active environment</p>
+                <p class="text-muted">No world state data</p>
+                {% endif %}
+
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="fas fa-globe fa-3x mb-3 d-block"></i>
+                    <p>No active environment. Create or activate one from the sidebar.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar: Available Environments + Edit Rules -->
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list"></i> Environments</h5>
+            </div>
+            <div class="card-body p-0">
+                {% for env in environments %}
+                <div class="px-3 py-3 border-bottom d-flex justify-content-between align-items-center
+                     {{ 'bg-light' if env.is_active }}">
+                    <div>
+                        <strong>{{ env.name }}</strong>
+                        {% if env.is_active %}<span class="badge bg-primary ms-1">Active</span>{% endif %}
+                        <br>
+                        <small class="text-muted">{{ env.description[:60] }}{% if env.description|length > 60 %}...{% endif %}</small>
+                    </div>
+                    {% if not env.is_active %}
+                    <button class="btn btn-sm btn-outline-primary switch-environment" data-env-id="{{ env.id }}">
+                        <i class="fas fa-exchange-alt"></i>
+                    </button>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% if not environments %}
+                <div class="text-center text-muted py-3">No environments found</div>
                 {% endif %}
             </div>
         </div>
 
-        <!-- Environment State Details -->
-        {% if environment_state %}
-        <div class="row">
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h6 class="mb-0"><i class="fas fa-building"></i> Societies</h6>
-                    </div>
-                    <div class="card-body">
-                        {% if environment_state.societies %}
-                        {% for society in environment_state.societies %}
-                        <div class="mb-2 p-2 border rounded">
-                            <strong>{{ society.name }}</strong>
-                            <br>
-                            <small class="text-muted">Founder: Agent {{ society.founder }}</small>
-                            <br>
-                            <small class="text-muted">Members: {{ society.members|length }}</small>
-                        </div>
-                        {% endfor %}
-                        {% else %}
-                        <p class="text-muted">No societies formed yet</p>
-                        {% endif %}
-                    </div>
-                </div>
+        <!-- Edit Rules -->
+        {% if environment_rules %}
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="fas fa-sliders-h"></i> Edit Rules</h6>
+                <button class="btn btn-sm btn-primary" id="saveRulesBtn"><i class="fas fa-save"></i> Save</button>
             </div>
-
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h6 class="mb-0"><i class="fas fa-university"></i> Governments</h6>
-                    </div>
-                    <div class="card-body">
-                        {% if environment_state.governments %}
-                        {% for government in environment_state.governments %}
-                        <div class="mb-2 p-2 border rounded">
-                            <strong>{{ government.name }}</strong>
-                            <br>
-                            <small class="text-muted">Leader: Agent {{ government.leader }}</small>
-                            <br>
-                            <small class="text-muted">Type: {{ government.type }}</small>
+            <div class="card-body">
+                <form id="rulesForm">
+                    {% for key, value in environment_rules.items() %}
+                    <div class="mb-3">
+                        <label class="form-label text-capitalize small fw-bold">{{ key | replace('_', ' ') }}</label>
+                        {% if value is sameas true or value is sameas false %}
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" name="{{ key }}"
+                                   data-rule-type="bool" {{ 'checked' if value }}>
                         </div>
-                        {% endfor %}
                         {% else %}
-                        <p class="text-muted">No governments created yet</p>
+                        <input type="number" class="form-control form-control-sm" name="{{ key }}"
+                               value="{{ value }}" data-rule-type="number" step="any">
                         {% endif %}
                     </div>
-                </div>
+                    {% endfor %}
+                </form>
             </div>
         </div>
         {% endif %}
-    </div>
-
-    <div class="col-md-4">
-        <!-- Available Environments -->
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-list"></i> Available Environments</h5>
-            </div>
-            <div class="card-body">
-                {% for env in environments %}
-                <div class="environment-item mb-2 p-2 border rounded {% if env.is_active %}border-primary{% endif %}">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div class="flex-grow-1">
-                            <strong>{{ env.name }}</strong>
-                            {% if env.is_active %}
-                            <span class="badge bg-primary ms-2">Active</span>
-                            {% endif %}
-                            <br>
-                            <small class="text-muted">{{ env.description }}</small>
-                            <br>
-                            <small class="text-muted">Created: {{ env.created_at.strftime('%Y-%m-%d') if env.created_at
-                                else 'Unknown' }}</small>
-                        </div>
-                        <div class="environment-actions">
-                            {% if not env.is_active %}
-                            <button class="btn btn-sm btn-outline-primary switch-environment"
-                                data-env-id="{{ env.id }}">
-                                <i class="fas fa-exchange-alt"></i>
-                            </button>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // Set up event listeners
-        document.getElementById('resetEnvironment').addEventListener('click', resetEnvironment);
+document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('resetEnvironment').addEventListener('click', resetEnvironment);
 
-        document.querySelectorAll('.switch-environment').forEach(btn => {
-            btn.addEventListener('click', function () {
-                const envId = this.dataset.envId;
-                switchEnvironment(envId);
-            });
+    document.querySelectorAll('.switch-environment').forEach(btn => {
+        btn.addEventListener('click', function () {
+            switchEnvironment(this.dataset.envId);
         });
-
-        // Auto-refresh environment state
-        startAutoRefresh(refreshEnvironmentState, 10000);
-        window.resumeAutoRefresh = function () {
-            startAutoRefresh(refreshEnvironmentState, 10000);
-        };
     });
 
-    function resetEnvironment() {
-        if (confirm('Are you sure you want to reset the environment? This will clear all agent interactions, societies, and governments.')) {
-            fetch('/api/environment/reset', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        showToast('Error resetting environment: ' + data.error, 'error');
-                    } else {
-                        showToast('Environment reset successfully', 'success');
-                        location.reload();
-                    }
-                })
-                .catch(error => {
-                    showToast('Error resetting environment: ' + error.message, 'error');
-                });
-        }
+    const saveBtn = document.getElementById('saveRulesBtn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', saveRules);
     }
+});
 
-    function switchEnvironment(envId) {
-        fetch(`/api/environment/switch/${envId}`, { method: 'POST' })
-            .then(response => response.json())
+function resetEnvironment() {
+    if (confirm('Reset the environment? This clears all societies, governments, and relationships.')) {
+        fetch('/api/environment/reset', { method: 'POST' })
+            .then(r => r.json())
             .then(data => {
-                if (data.error) {
-                    showToast('Error switching environment: ' + data.error, 'error');
-                } else {
-                    showToast('Environment switched successfully', 'success');
-                    location.reload();
-                }
+                if (data.error) { showToast('Error: ' + data.error, 'error'); return; }
+                showToast('Environment reset', 'success');
+                location.reload();
             })
-            .catch(error => {
-                showToast('Error switching environment: ' + error.message, 'error');
-            });
+            .catch(err => showToast('Error: ' + err.message, 'error'));
     }
+}
 
-    function refreshEnvironmentState() {
-        // This would typically fetch updated environment state
-        // For now, we'll just reload the page periodically
-        // In a production app, you'd want to update specific elements
-    }
+function switchEnvironment(envId) {
+    fetch(`/api/environment/switch/${envId}`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { showToast('Error: ' + data.error, 'error'); return; }
+            showToast('Environment switched', 'success');
+            location.reload();
+        })
+        .catch(err => showToast('Error: ' + err.message, 'error'));
+}
+
+function saveRules() {
+    const form = document.getElementById('rulesForm');
+    if (!form) return;
+    const rules = {};
+    form.querySelectorAll('[name]').forEach(el => {
+        if (el.dataset.ruleType === 'bool') {
+            rules[el.name] = el.checked;
+        } else {
+            rules[el.name] = parseFloat(el.value) || 0;
+        }
+    });
+    fetch('/api/environment/rules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { showToast('Error: ' + data.error, 'error'); return; }
+        showToast('Rules saved', 'success');
+    })
+    .catch(err => showToast('Error: ' + err.message, 'error'));
+}
 </script>
 {% endblock %}

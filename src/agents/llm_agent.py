@@ -1,14 +1,24 @@
 import random
 import json
+import re
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from models import Agent, db
+from models import Agent, PersonalityTrait, db
 from src.providers.factory import ProviderFactory
 from src.memory import MemoryManager
 from src.environment import EnvironmentManager
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Default personality traits
+DEFAULT_TRAITS = {
+    'openness': 0.5,
+    'sociability': 0.5,
+    'assertiveness': 0.5,
+    'curiosity': 0.5,
+    'empathy': 0.5,
+}
 
 class LLMAgent:
     """Represents an LLM agent with personality, memory, and behavior"""
@@ -107,10 +117,6 @@ class LLMAgent:
             agent_logger.warning("Agent not active, cannot generate response")
             return "Agent is not available"
         
-        # Check if this is a relevant conversational prompt for an AI agent
-        if self._is_irrelevant_prompt(prompt):
-            return self._get_relevance_redirect_response(prompt)
-        
         # Build the full prompt with personality and context
         full_prompt = self._build_prompt(prompt, context)
         agent_logger.debug(f"Prompt built, length: {len(full_prompt)}")
@@ -172,47 +178,13 @@ class LLMAgent:
             return f"Error generating response: {str(e)}"
     
     def _is_irrelevant_prompt(self, prompt: str) -> bool:
-        """Check if the prompt is irrelevant to the agent's purpose"""
+        """Only block explicit code-generation requests — everything else is fair game
+        for a human-like agent (math, trivia, opinions, etc.)."""
         prompt_lower = prompt.lower().strip()
-        
-        # Math questions
-        if any(op in prompt_lower for op in ['+', '-', '*', '/', '=', 'what is', 'calculate', 'solve']):
-            # Check for simple math patterns
-            import re
-            if re.search(r'\b\d+\s*[+\-*/]\s*\d+\b', prompt_lower):
-                return True
-        
-        # Programming/code questions
-        if any(term in prompt_lower for term in ['function', 'variable', 'loop', 'array', 'python', 'javascript', 'code', 'programming', 'algorithm']):
-            return True
-        
-        # Technical/factual questions that aren't conversational
-        if any(term in prompt_lower for term in ['what year', 'when was', 'who invented', 'capital of', 'population of', 'definition of']):
-            return True
-        
-        # Random/test inputs
-        if len(prompt.strip()) < 3 or prompt_lower in ['test', 'hello', 'hi', '?', '.', '!']:
-            return True
-            
-        return False
-    
-    def _get_relevance_redirect_response(self, prompt: str) -> str:
-        """Get a response that redirects to the agent's purpose"""
-        prompt_lower = prompt.lower()
-        
-        # Math-specific response
-        if any(op in prompt_lower for op in ['+', '-', '*', '/', '=']) or 'what is' in prompt_lower:
-            return f"I'm {self.agent_data.name}, an AI agent focused on social interaction and community building. For math calculations, you might want to use a calculator or ask a different AI assistant!"
-        
-        # Generic redirect based on personality
-        if "gossip" in self.agent_data.personality.lower() or "social" in self.agent_data.personality.lower():
-            return f"Hi! I'm {self.agent_data.name} and I love chatting about social topics, relationships, and what's happening in our community. What would you like to talk about?"
-        elif "politics" in self.agent_data.personality.lower() or "governance" in self.agent_data.personality.lower():
-            return f"Hello! I'm {self.agent_data.name} and I'm interested in discussing governance, leadership, and how we can work together as a community. What are your thoughts on these topics?"
-        elif "teacher" in self.agent_data.personality.lower() or "education" in self.agent_data.personality.lower():
-            return f"Hi there! I'm {self.agent_data.name} and I love discussing learning, education, and sharing knowledge. What would you like to explore together?"
-        else:
-            return f"Hello! I'm {self.agent_data.name}. I'm designed for meaningful conversations about social interaction, community building, and related topics. What would you like to discuss?"
+        code_signals = ['write a function', 'write code', 'write a script',
+                        'implement a class', 'give me code', 'debug this',
+                        'fix this code', 'refactor this']
+        return any(s in prompt_lower for s in code_signals)
     
     def _build_prompt(self, prompt: str, context: str = "") -> str:
         """Build a complete prompt with personality and memory context"""
@@ -579,5 +551,117 @@ Respond as {self.agent_data.name} in 1-2 sentences. Be natural and conversationa
             'is_active': self.is_active(),
             'last_active': self.agent_data.last_active.isoformat() if self.agent_data.last_active else None,
             'memory_summary': memory_summary,
-            'provider_available': self.provider.is_available() if self.provider else False
+            'provider_available': self.provider.is_available() if self.provider else False,
+            'traits': self.get_all_traits(),
         }
+    
+    # ─── Personality Traits ─────────────────────────────
+    
+    def init_default_traits(self):
+        """Initialize personality traits derived from the personality description"""
+        existing = PersonalityTrait.query.filter_by(agent_id=self.agent_id).count()
+        if existing > 0:
+            return  # Already initialized
+        
+        personality = self.agent_data.personality.lower()
+        traits = {k: v for k, v in DEFAULT_TRAITS.items()}
+        
+        # Derive initial values from personality keywords
+        if any(kw in personality for kw in ['social', 'chatty', 'gossip', 'friendly', 'connect', 'people']):
+            traits['sociability'] = round(random.uniform(0.65, 0.85), 2)
+        if any(kw in personality for kw in ['curious', 'learn', 'explore', 'discover', 'interested']):
+            traits['curiosity'] = round(random.uniform(0.65, 0.85), 2)
+        if any(kw in personality for kw in ['leader', 'assertive', 'strong', 'decisive', 'governance']):
+            traits['assertiveness'] = round(random.uniform(0.60, 0.80), 2)
+        if any(kw in personality for kw in ['open', 'new ideas', 'philosophy', 'explore', 'curious']):
+            traits['openness'] = round(random.uniform(0.60, 0.80), 2)
+        if any(kw in personality for kw in ['empathetic', 'caring', 'understanding', 'kind', 'warmth']):
+            traits['empathy'] = round(random.uniform(0.65, 0.85), 2)
+        
+        for trait_name, value in traits.items():
+            t = PersonalityTrait(
+                agent_id=self.agent_id,
+                trait_name=trait_name,
+                value=value,
+            )
+            db.session.add(t)
+        
+        db.session.commit()
+        logger.info(f"Initialized traits for {self.agent_data.name}", extra={'context': traits})
+    
+    def get_trait_value(self, trait_name: str) -> float:
+        """Get a personality trait value (0.0 to 1.0), default 0.5"""
+        trait = PersonalityTrait.query.filter_by(
+            agent_id=self.agent_id, trait_name=trait_name
+        ).first()
+        return trait.value if trait else 0.5
+    
+    def get_all_traits(self) -> dict:
+        """Get all personality traits as a dict"""
+        traits = PersonalityTrait.query.filter_by(agent_id=self.agent_id).all()
+        return {t.trait_name: round(t.value, 2) for t in traits}
+    
+    def evolve_personality(self):
+        """Use LLM self-reflection to evolve personality traits based on recent experiences"""
+        current_traits = self.get_all_traits()
+        if not current_traits:
+            return
+        
+        recent = self.memory_manager.get_memories(limit=8)
+        memory_text = "\n".join([f"- {m.content[:80]}" for m in recent]) if recent else "No recent memories."
+        traits_text = "\n".join([f"- {k}: {int(v*100)}%" for k, v in current_traits.items()])
+        
+        prompt = f"""You are {self.agent_data.name}. Reflect on your recent experiences:
+{memory_text}
+
+Your current personality traits:
+{traits_text}
+
+Based on these experiences, how have your traits shifted? For each, give a number from -3 to +3 (0 = no change).
+Reply ONLY in this format:
+openness: [number]
+sociability: [number]
+assertiveness: [number]
+curiosity: [number]
+empathy: [number]"""
+        
+        try:
+            raw = self.provider.generate_response(prompt, model=self.agent_data.model_name)
+            changes = self._parse_trait_changes(raw)
+            
+            if changes:
+                for trait_name, delta in changes.items():
+                    trait = PersonalityTrait.query.filter_by(
+                        agent_id=self.agent_id, trait_name=trait_name
+                    ).first()
+                    if trait:
+                        old_val = trait.value
+                        trait.value = max(0.05, min(0.95, trait.value + delta * 0.03))
+                        trait.updated_at = datetime.utcnow()
+                        if abs(trait.value - old_val) > 0.01:
+                            logger.info(f"Trait evolved", extra={'context': {
+                                'agent': self.agent_data.name,
+                                'trait': trait_name,
+                                'from': f'{old_val:.0%}',
+                                'to': f'{trait.value:.0%}',
+                            }})
+                
+                db.session.commit()
+                self.memory_manager.add_memory(
+                    "I reflected on my experiences and my personality evolved slightly.",
+                    memory_type='long_term', importance_score=6.0
+                )
+        except Exception as e:
+            logger.error(f"Personality evolution failed for {self.agent_data.name}: {e}")
+    
+    def _parse_trait_changes(self, raw: str) -> dict:
+        """Parse trait change numbers from LLM self-reflection response"""
+        changes = {}
+        for trait in DEFAULT_TRAITS:
+            for pattern in [rf'{trait}\s*[:=]\s*([+-]?\d+)', rf'{trait}.*?([+-]?\d+)']:
+                match = re.search(pattern, raw.lower())
+                if match:
+                    val = int(match.group(1))
+                    changes[trait] = max(-3, min(3, val))
+                    break
+        return changes if len(changes) >= 3 else {}  # Need at least 3 valid changes
